@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+node_modules/
+dist/
+.vite/
+*.egg-info/
+.claude/
+# stray temp build artifacts (Windows path leak)
+frontend/C*/
