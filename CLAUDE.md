@@ -71,3 +71,35 @@ Default spread threshold: **0.3%** — edit `ARBI_THRESHOLD_PCT` in `.env`.
 1. Add collector in `backend/app/collector/<exchange>.py` extending `BaseCollector`
 2. Register it in `backend/worker/main.py`
 3. Add exchange name to `EXCHANGES` list in `backend/app/config.py`
+## MOEX Integration (добавлено 29.05.2026)
+
+Интегрируем данные MOEX FORTS на страницу Weekly Performance.
+Только обороты (не цены). Вся страница переводится в рубли.
+
+### Инструменты (SECTYPE → canonical)
+- BR → BRN/USDT (Brent)
+- NG → NATGAS/USDT (газ)  
+- GD → XAU/USDT (золото, только GD — не GL)
+- SV → XAG/USDT (серебро)
+- PT → XPT/USDT (платина)
+- PD → XPD/USDT (палладий)
+
+### Методология ADTV
+- Поле VALUE (рубли) из ISS history-эндпоинта
+- Суммировать VALUE по всем сериям одного SECTYPE за день
+- Спреды (GDM6GDU6 и т.п.) отсекаются автоматически — у них другой SECTYPE
+- Знаменатель: торговые дни из backend/app/data/moex_calendar.json
+- ДСВД: оборот входит в числитель, но день НЕ считается торговым
+
+### Конвертация крипты в рубли
+- Подневно: оборот_USD × курс USDRUBF за тот же день
+- USDRUBF — вечный фьючерс (SECTYPE=US, LASTTRADEDATE=2100-01-01)
+- Выходные: forward-fill пятничного курса
+
+### Статус (на 29.05.2026)
+- ✅ moex_calendar.json создан (backend/app/data/)
+- ✅ ETL написан (backend/app/moex/etl.py)
+- ✅ Таблицы созданы: moex_fx_rates, moex_daily_value
+- ✅ Данные загружены: 180 курсов USDRUBF, BR/GD и др. за 115+ дней
+- ⏳ Следующий шаг: подключить daily_volume_rub к эндпоинту /weekly-adtv,
+  перевести фронтенд Analytics.tsx на рубли (ось Y, тултипы, KPI-плашки)
