@@ -610,6 +610,107 @@ async def fetch_funding_symbols() -> list[str]:
     return [r["symbol"] for r in rows]
 
 
+# ── MOEX FX rates ─────────────────────────────────────────────────────────────
+
+async def upsert_moex_fx_rates(rows: list[tuple]) -> int:
+    """Bulk upsert (date, usdrub) pairs into moex_fx_rates. Returns row count."""
+    if not rows:
+        return 0
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.executemany(
+                """
+                INSERT INTO moex_fx_rates (date, usdrub)
+                VALUES ($1, $2)
+                ON CONFLICT (date) DO UPDATE SET usdrub = EXCLUDED.usdrub
+                """,
+                rows,
+            )
+    return len(rows)
+
+
+async def get_moex_fx_latest_date():
+    pool = await get_pool()
+    return await pool.fetchval("SELECT MAX(date) FROM moex_fx_rates")
+
+
+async def fetch_moex_fx_rates_range(from_date, till_date) -> list:
+    pool = await get_pool()
+    return await pool.fetch(
+        "SELECT date, usdrub FROM moex_fx_rates WHERE date BETWEEN $1 AND $2 ORDER BY date",
+        from_date, till_date,
+    )
+
+
+# ── MOEX daily volumes ────────────────────────────────────────────────────────
+
+async def upsert_moex_daily_value(rows: list[tuple]) -> int:
+    """Bulk upsert (date, asset_code, value_rub) into moex_daily_value. Returns row count."""
+    if not rows:
+        return 0
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.executemany(
+                """
+                INSERT INTO moex_daily_value (date, asset_code, value_rub)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (date, asset_code) DO UPDATE SET value_rub = EXCLUDED.value_rub
+                """,
+                rows,
+            )
+    return len(rows)
+
+
+async def get_moex_asset_latest_date(asset_code: str):
+    pool = await get_pool()
+    return await pool.fetchval(
+        "SELECT MAX(date) FROM moex_daily_value WHERE asset_code = $1", asset_code
+    )
+
+
+async def fetch_moex_weekly_volumes() -> list:
+    """
+    Weekly summed VALUE per asset_code for the current year.
+    Returns rows: (week_start date, asset_code, total_value_rub).
+    """
+    pool = await get_pool()
+    return await pool.fetch(
+        """
+        SELECT
+            date_trunc('week', date)::date AS week_start,
+            asset_code,
+            SUM(value_rub)::float          AS total_value_rub
+        FROM moex_daily_value
+        WHERE date >= date_trunc('year', NOW())
+        GROUP BY week_start, asset_code
+        ORDER BY week_start, asset_code
+        """
+    )
+
+
+async def fetch_crypto_weekly_volumes_usdt() -> list:
+    """
+    Weekly summed quote_volume (USDT) per symbol × exchange for the current year.
+    Returns rows: (week_start date, symbol, exchange, total_usdt).
+    """
+    pool = await get_pool()
+    return await pool.fetch(
+        """
+        SELECT
+            date_trunc('week', ts)::date AS week_start,
+            symbol,
+            exchange,
+            SUM(quote_volume)::float     AS total_usdt
+        FROM ohlcv_daily
+        WHERE ts >= date_trunc('year', NOW())
+        GROUP BY week_start, symbol, exchange
+        ORDER BY week_start, symbol, exchange
+        """
+    )
+
+
 async def seed_instruments_from_config():
     """
     Populate the instruments table from ARBI_SYMBOLS env-var on first run.

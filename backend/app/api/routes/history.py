@@ -97,7 +97,15 @@ async def get_weekly_adtv():
 
 @router.post("/refresh")
 async def trigger_refresh(background_tasks: BackgroundTasks):
-    """Kick off an incremental backfill in the background."""
+    """Kick off an incremental crypto OHLCV backfill in the background."""
     from app.backfill.ohlcv import run_backfill
     background_tasks.add_task(run_backfill)
     return {"status": "backfill started"}
+
+
+@router.post("/moex-refresh")
+async def trigger_moex_refresh(background_tasks: BackgroundTasks):
+    """Kick off a MOEX ETL pass in the background."""
+    from app.moex.etl import run_moex_etl
+    background_tasks.add_task(run_moex_etl)
+    return {"status": "moex etl started"}
