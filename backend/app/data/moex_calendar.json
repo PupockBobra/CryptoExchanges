@@ -1,0 +1,25 @@
+{
+  "_comment": "MOEX FORTS trading calendar. Update non_trading_days each year from https://www.moex.com/n1031. dsvd_new_sessions = weekend sessions where turnover IS counted but the day is NOT counted in ADTV denominator.",
+  "non_trading_days": [
+    "2026-01-01",
+    "2026-01-02",
+    "2026-01-05",
+    "2026-01-06",
+    "2026-01-07",
+    "2026-01-08",
+    "2026-01-09",
+    "2026-02-23",
+    "2026-03-09",
+    "2026-05-01",
+    "2026-05-04",
+    "2026-05-08",
+    "2026-05-11",
+    "2026-06-12",
+    "2026-11-04",
+    "2026-12-31"
+  ],
+  "dsvd_new_sessions": [
+    "2026-01-03",
+    "2026-01-04"
+  ]
+}

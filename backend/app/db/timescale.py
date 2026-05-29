@@ -151,6 +151,24 @@ async def init_db():
             except Exception:
                 pass
 
+        # ── MOEX tables ──────────────────────────────────────────────────────────
+        async with pool.acquire() as conn_moex:
+            await conn_moex.execute("""
+                CREATE TABLE IF NOT EXISTS moex_daily_value (
+                    date       DATE           NOT NULL,
+                    asset_code TEXT           NOT NULL,
+                    value_rub  NUMERIC(20, 2) NOT NULL,
+                    PRIMARY KEY (date, asset_code)
+                );
+                CREATE INDEX IF NOT EXISTS idx_moex_daily_value_date
+                    ON moex_daily_value (date DESC);
+
+                CREATE TABLE IF NOT EXISTS moex_fx_rates (
+                    date   DATE           PRIMARY KEY,
+                    usdrub NUMERIC(12, 4) NOT NULL
+                );
+            """)
+
         # ── Retention policies (idempotent: drop old, add at desired duration) ────
         # Note: positional args required — named `if_not_exists =>` not supported
         # in all TimescaleDB versions.
