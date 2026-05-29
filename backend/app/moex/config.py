@@ -13,8 +13,8 @@ ASSET_TO_CANONICAL: dict[str, str] = {
     "NG": "NATGAS/USDT:USDT",
     "GD": "XAU/USDT:USDT",
     "SV": "XAG/USDT:USDT",
-    "PT": "XPT/RUB",
-    "PD": "XPD/RUB",
+    "PT": "XPT/USDT:USDT",
+    "PD": "XPD/USDT:USDT",
 }
 
 # asset_code → currently active contract SECID list (update quarterly)

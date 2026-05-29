@@ -19,6 +19,7 @@ from app.db.timescale import (
     fetch_history_metrics,
     fetch_history_metrics_by_exchange,
     fetch_weekly_adtv,
+    fetch_weekly_adtv_rub,
 )
 
 log = logging.getLogger(__name__)
@@ -78,10 +79,12 @@ async def get_metrics_by_exchange():
 @router.get("/weekly-adtv")
 async def get_weekly_adtv():
     """
-    Weekly ADTV per symbol × exchange × ISO week.
+    Weekly ADTV in RUB per symbol × exchange × ISO week.
+    Crypto volumes are converted USDT→RUB via daily USDRUBF rate.
+    MOEX FORTS appears as exchange='moex' with volumes already in RUB.
     Returns a flat list; the frontend groups and pivots into per-symbol charts.
     """
-    rows = await fetch_weekly_adtv()
+    rows = await fetch_weekly_adtv_rub()
     return [
         {
             "week_start":   str(r["week_start"]),

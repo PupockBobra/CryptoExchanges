@@ -499,6 +499,65 @@ async def fetch_weekly_adtv() -> list[asyncpg.Record]:
     )
 
 
+async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
+    """
+    Weekly ADTV in RUB per symbol × exchange × ISO week.
+
+    Crypto volumes are converted USDT → RUB by joining with moex_fx_rates
+    (USDRUBF daily settlement price, forward-filled for weekends).
+    MOEX FORTS volumes are already in RUB and contribute a synthetic 'moex' exchange row.
+
+    asset_code → canonical symbol mapping (FORTS):
+      BR → BRN/USDT:USDT, NG → NATGAS/USDT:USDT, GD → XAU/USDT:USDT,
+      SV → XAG/USDT:USDT, PT → XPT/USDT:USDT, PD → XPD/USDT:USDT
+    """
+    pool = await get_pool()
+    return await pool.fetch(
+        """
+        WITH crypto_rub AS (
+            SELECT
+                date_trunc('week', o.ts)::date                          AS week_start,
+                to_char(date_trunc('week', o.ts), 'Mon DD')             AS week_label,
+                o.symbol,
+                o.exchange,
+                COUNT(*)                                                 AS days_in_week,
+                ROUND(
+                    (SUM(o.quote_volume * fx.usdrub) / NULLIF(COUNT(*), 0))::numeric, 2
+                )                                                        AS adtv
+            FROM ohlcv_daily o
+            INNER JOIN moex_fx_rates fx ON fx.date = o.ts::date
+            WHERE o.ts >= '2026-01-01'
+            GROUP BY date_trunc('week', o.ts), o.symbol, o.exchange
+        ),
+        moex_rub AS (
+            SELECT
+                date_trunc('week', m.date)::date                        AS week_start,
+                to_char(date_trunc('week', m.date), 'Mon DD')           AS week_label,
+                CASE m.asset_code
+                    WHEN 'BR' THEN 'BRN/USDT:USDT'
+                    WHEN 'NG' THEN 'NATGAS/USDT:USDT'
+                    WHEN 'GD' THEN 'XAU/USDT:USDT'
+                    WHEN 'SV' THEN 'XAG/USDT:USDT'
+                    WHEN 'PT' THEN 'XPT/USDT:USDT'
+                    WHEN 'PD' THEN 'XPD/USDT:USDT'
+                END                                                      AS symbol,
+                'moex'::text                                             AS exchange,
+                COUNT(*)                                                 AS days_in_week,
+                ROUND(
+                    (SUM(m.value_rub) / NULLIF(COUNT(*), 0))::numeric, 2
+                )                                                        AS adtv
+            FROM moex_daily_value m
+            WHERE m.date >= '2026-01-01'
+            GROUP BY date_trunc('week', m.date), m.asset_code
+        )
+        SELECT * FROM crypto_rub
+        UNION ALL
+        SELECT * FROM moex_rub
+        ORDER BY week_start, symbol, exchange
+        """
+    )
+
+
 async def fetch_history_metrics_by_exchange() -> list[asyncpg.Record]:
     """Per-exchange ADTV breakdown used for the detail tooltip."""
     pool = await get_pool()
