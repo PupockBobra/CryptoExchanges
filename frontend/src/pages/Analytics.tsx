@@ -26,7 +26,7 @@ interface WeeklyRow {
   symbol:       string
   exchange:     string
   days_in_week: number
-  adtv:         number   // USDT
+  adtv:         number   // RUB
 }
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
@@ -83,12 +83,13 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
       showgrid:  false,
     },
     yaxis: {
-      title: { text: 'ADTV (USD)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
+      title: { text: 'ADTV (₽)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
       tickfont:   { color: t.text, size: 10, family: FONT_FAMILY },
       gridcolor:  t.grid,
       linecolor:  t.grid,
-      tickformat: '$.3s',
-      hoverformat:'$,.0f',
+      tickprefix: '₽',
+      tickformat: ',.3s',
+      hoverformat:',.0f',
     },
     hoverlabel: {
       bgcolor:     t.hover,
@@ -144,7 +145,7 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
         y,
         marker:      { color: EXCHANGE_COLORS[ex], opacity: 0.85 },
         visible:     hasAny ? true : 'legendonly',
-        hovertemplate: `<b>${ex}</b>: $%{y:,.0f}<extra></extra>`,
+        hovertemplate: `<b>${ex}</b>: ₽%{y:,.0f}<extra></extra>`,
       } satisfies Plotly.Data
     })
 
@@ -228,10 +229,10 @@ export function Analytics() {
   const lastCompleteWeek = sortedWeeks.length >= 2 ? sortedWeeks[sortedWeeks.length - 2] : null
   const currentWeek      = sortedWeeks.length >= 1 ? sortedWeeks[sortedWeeks.length - 1] : null
 
-  function fmtUsd(v: number) {
-    if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`
-    if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`
-    return `$${v.toFixed(0)}`
+  function fmtRub(v: number) {
+    if (v >= 1e9) return `₽${(v / 1e9).toFixed(2)}B`
+    if (v >= 1e6) return `₽${(v / 1e6).toFixed(1)}M`
+    return `₽${v.toFixed(0)}`
   }
 
   return (
@@ -240,7 +241,7 @@ export function Analytics() {
       <div className="page-toolbar">
         <h1>Weekly ADTV Analytics</h1>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
-          Average Daily Trading Volume per ISO week · all exchanges stacked
+          Average Daily Trading Volume per ISO week · all exchanges + MOEX FORTS stacked · RUB
           {lastSync && ` · loaded ${lastSync.toLocaleTimeString()}`}
         </div>
         <button
@@ -267,7 +268,7 @@ export function Analytics() {
                   </span>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
-                  {fmtUsd(lastCompleteWeek[1])}
+                  {fmtRub(lastCompleteWeek[1])}
                 </div>
               </div>
             )}
@@ -277,7 +278,7 @@ export function Analytics() {
                   Current week ADTV (partial)
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
-                  {fmtUsd(currentWeek[1])}
+                  {fmtRub(currentWeek[1])}
                 </div>
               </div>
             )}

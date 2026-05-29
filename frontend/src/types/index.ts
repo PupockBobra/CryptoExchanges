@@ -55,9 +55,9 @@ export interface ExchangeStats {
   updated_at:     string | null
 }
 
-export type Exchange = 'binance' | 'okx' | 'bybit' | 'mexc' | 'hyperliquid'
+export type Exchange = 'binance' | 'okx' | 'bybit' | 'mexc' | 'hyperliquid' | 'moex'
 
-export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid']
+export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']
 
 export const EXCHANGE_COLORS: Record<Exchange, string> = {
   binance:     '#f0b90b',
@@ -65,6 +65,7 @@ export const EXCHANGE_COLORS: Record<Exchange, string> = {
   bybit:       '#ff6b35',
   mexc:        '#0ecb81',
   hyperliquid: '#00e5ff',
+  moex:        '#d52b1e',
 }
 
 // ── Symbol sections ───────────────────────────────────────────────────────────
