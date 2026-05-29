@@ -1,13 +1,27 @@
 """
-MOEX FORTS series configuration.
+MOEX FORTS configuration.
 
-Update SERIES_BY_ASSET quarterly when new contracts become front-month.
 USDRUBF is the perpetual USD/RUB swap — its SECID never changes.
+
+The ETL uses ISS ASSETCODE-level discovery to find all contracts (including
+expired ones) without a hardcoded series list.  ISS ASSETCODE values differ
+from the short internal codes used as DB keys (e.g. "GD" vs "GOLD").
 """
 
 USDRUBF_SECID = "USDRUBF"
 
-# asset_code → canonical symbol in the arbitrage tracker
+# Internal DB key → ISS ASSETCODE (used by the discovery query)
+# Verified via /iss/engines/futures/markets/forts/securities/{SECID}.json
+ASSET_ISS_CODE: dict[str, str] = {
+    "BR": "BR",
+    "NG": "NG",
+    "GD": "GOLD",
+    "SV": "SILV",
+    "PT": "PLT",
+    "PD": "PLD",
+}
+
+# Internal DB key → canonical symbol in the arbitrage tracker
 ASSET_TO_CANONICAL: dict[str, str] = {
     "BR": "BRN/USDT:USDT",
     "NG": "NATGAS/USDT:USDT",
@@ -15,14 +29,4 @@ ASSET_TO_CANONICAL: dict[str, str] = {
     "SV": "XAG/USDT:USDT",
     "PT": "XPT/USDT:USDT",
     "PD": "XPD/USDT:USDT",
-}
-
-# asset_code → currently active contract SECID list (update quarterly)
-SERIES_BY_ASSET: dict[str, list[str]] = {
-    "BR": ["BRM6", "BRN6", "BRQ6", "BRU6", "BRV6", "BRX6", "BRZ6", "BRF7"],
-    "NG": ["NGM6", "NGN6", "NGQ6", "NGU6", "NGV6", "NGX6", "NGZ6"],
-    "GD": ["GDM6", "GDU6", "GDZ6", "GDH7"],
-    "SV": ["SVM6", "SVU6", "SVZ6", "SVH7"],
-    "PT": ["PTM6", "PTU6", "PTZ6", "PTH7"],
-    "PD": ["PDM6", "PDU6", "PDZ6", "PDH7"],
 }

@@ -162,3 +162,121 @@ def aggregate_asset_value(
                 params = dict(params, start=next_start)
 
     return totals
+
+
+def _discover_secids_for_assetcode(
+    session,
+    asset_code: str,
+    from_date: date,
+    till_date: date,
+) -> list[str]:
+    """
+    Discover all SECID codes (including expired contracts) for a given ASSETCODE
+    by querying the ISS market-level endpoint once per month boundary.
+
+    The market-level endpoint only returns one session at a time (the `date` param),
+    so we sample the first day of each month in [from_date, till_date].  This is
+    cheap (≤7 requests for a 6-month window) and catches every contract that was
+    front-month at any point in the period.
+
+    Spreads are excluded: their SECIDs are formed by concatenating two contract
+    codes (e.g. BRG6BRH6) and are therefore longer than a single contract code.
+    We keep only SECIDs whose length is at most len(asset_code) + 2 (code + month
+    letter + year digit).
+    """
+    url = f"{_ISS_BASE}/history/engines/futures/markets/forts/securities.json"
+    max_len = len(asset_code) + 2   # e.g. "BR" + "G" + "6" = 4 chars
+
+    secids: set[str] = set()
+
+    # Build list of sample dates: first of each month + till_date
+    sample_dates: list[date] = []
+    d = from_date.replace(day=1)
+    while d <= till_date:
+        sample_dates.append(d)
+        month = d.month + 1 if d.month < 12 else 1
+        year  = d.year if d.month < 12 else d.year + 1
+        d = d.replace(year=year, month=month, day=1)
+    sample_dates.append(till_date)
+
+    for sample_date in sample_dates:
+        try:
+            data = _get(session, url, {
+                "assetcode":        asset_code,
+                "date":             sample_date.isoformat(),
+                "history.columns":  "SECID",
+                "start":            0,
+            })
+            for row in data["history"]["data"]:
+                secid = row[0]
+                if secid and len(secid) <= max_len:
+                    secids.add(secid)
+        except Exception as exc:
+            log.warning("ISS SECID discovery failed for %s on %s: %s", asset_code, sample_date, exc)
+
+    log.info("ISS discovered %d SECIDs for assetcode=%s: %s", len(secids), asset_code, sorted(secids))
+    return list(secids)
+
+
+def aggregate_asset_value_by_assetcode(
+    asset_code: str,
+    from_date: date,
+    till_date: date,
+) -> dict[date, float]:
+    """
+    Fetch VALUE for ALL instruments with the given ASSETCODE (including expired
+    contracts) over [from_date, till_date].
+
+    Two-step process:
+      1. Discover all SECID codes that traded under this assetcode during the period
+         (samples the ISS market-level endpoint at monthly boundaries).
+      2. Fetch full history per SECID and sum VALUE by date — same as
+         aggregate_asset_value() but with a dynamically built SECID list.
+
+    This replaces the old hardcoded SERIES_BY_ASSET approach, which missed expired
+    contracts and therefore under-counted historical ADTV.
+    """
+    with _make_session() as session:
+        secids = _discover_secids_for_assetcode(session, asset_code, from_date, till_date)
+        if not secids:
+            log.warning("ISS: no SECIDs discovered for assetcode=%s", asset_code)
+            return {}
+
+        totals: dict[date, float] = {}
+        for secid in secids:
+            url = (
+                f"{_ISS_BASE}/history/engines/futures/markets/forts"
+                f"/securities/{secid}.json"
+            )
+            params = {
+                "from":             from_date.isoformat(),
+                "till":             till_date.isoformat(),
+                "history.columns":  "TRADEDATE,VALUE",
+                "start":            0,
+            }
+            while True:
+                data   = _get(session, url, params)
+                hist   = data["history"]
+                cols   = hist["columns"]
+                page   = hist["data"]
+                cursor = data["history.cursor"]["data"][0]
+                idx, total, pagesize = cursor[0], cursor[1], cursor[2]
+
+                for row in page:
+                    r   = dict(zip(cols, row))
+                    val = r.get("VALUE")
+                    if not val:
+                        continue
+                    trade_date = date.fromisoformat(r["TRADEDATE"])
+                    totals[trade_date] = totals.get(trade_date, 0.0) + float(val)
+
+                next_start = idx + pagesize
+                if next_start >= total:
+                    break
+                params = dict(params, start=next_start)
+
+        log.info(
+            "ISS assetcode=%s: aggregated %d trading days from %d contracts",
+            asset_code, len(totals), len(secids),
+        )
+        return totals

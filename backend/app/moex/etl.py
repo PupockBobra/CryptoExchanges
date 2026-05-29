@@ -27,8 +27,8 @@ from app.db.timescale import (
     upsert_moex_daily_value,
 )
 from app.moex.calendar import is_moex_value_day
-from app.moex.config import SERIES_BY_ASSET
-from app.moex.fetcher import fetch_usdrubf_history, aggregate_asset_value
+from app.moex.config import ASSET_TO_CANONICAL
+from app.moex.fetcher import fetch_usdrubf_history, aggregate_asset_value_by_assetcode
 
 log = logging.getLogger(__name__)
 
@@ -57,9 +57,9 @@ async def run_moex_etl() -> None:
     except Exception as exc:
         log.warning("MOEX ETL: FX rates refresh failed: %s", exc)
 
-    for asset_code, secids in SERIES_BY_ASSET.items():
+    for asset_code in ASSET_TO_CANONICAL:
         try:
-            await _refresh_asset(asset_code, secids)
+            await _refresh_asset(asset_code)
         except Exception as exc:
             log.warning("MOEX ETL: asset %s refresh failed: %s", asset_code, exc)
 
@@ -115,19 +115,16 @@ async def _refresh_fx_rates() -> None:
     log.info("MOEX ETL: upserted %d FX rate rows", n)
 
 
-async def _refresh_asset(asset_code: str, secids: list[str]) -> None:
-    """Fetch and aggregate VALUE for all series of one asset."""
+async def _refresh_asset(asset_code: str) -> None:
+    """Fetch and aggregate VALUE for all series of one asset via ISS assetcode filter."""
     loop = asyncio.get_event_loop()
     latest = await get_moex_asset_latest_date(asset_code)
     from_dt = _from_date(latest)
     today   = date.today()
 
-    log.info(
-        "MOEX ETL: fetching %s (%d series) from %s to %s",
-        asset_code, len(secids), from_dt, today,
-    )
+    log.info("MOEX ETL: fetching %s (all series) from %s to %s", asset_code, from_dt, today)
     totals: dict[date, float] = await loop.run_in_executor(
-        _executor, aggregate_asset_value, secids, from_dt, today
+        _executor, aggregate_asset_value_by_assetcode, asset_code, from_dt, today
     )
 
     if not totals:
