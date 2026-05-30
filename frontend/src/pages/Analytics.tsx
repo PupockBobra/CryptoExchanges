@@ -16,6 +16,9 @@ import { useTheme } from '../hooks/useTheme'
 import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
 
+// Sections where MOEX has no data — exclude from traces entirely
+const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
+
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -134,18 +137,31 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
   useEffect(() => {
     if (!divRef.current || !rows.length) return
 
+    const section = classifySymbol(symbol)
+
     // Collect ordered list of week starts (X axis), label as date range
     const weekStarts = Array.from(new Set(rows.map((r) => r.week_start))).sort()
     const labels = weekStarts.map(weekRangeLabel)
 
-    // Build one trace per exchange; Y values pre-scaled to billions for readable ticks
-    const traces: Plotly.Data[] = EXCHANGES.map((ex: Exchange) => {
+    // Auto-scale: if peak weekly ADTV across all exchanges < 30B → use millions
+    const maxAdtv = Math.max(...rows.map((r) => r.adtv))
+    const useMillions = maxAdtv < 30e9
+    const scale  = useMillions ? 1e6 : 1e9
+    const suffix = useMillions ? 'M' : 'B'
+
+    // Exchanges to include: omit moex for sections that have no MOEX data
+    const visibleExchanges = MOEX_SECTIONS.includes(section)
+      ? EXCHANGES.filter((ex) => ex !== 'moex')
+      : EXCHANGES
+
+    // Build one trace per exchange; Y values pre-scaled for readable ticks
+    const traces: Plotly.Data[] = visibleExchanges.map((ex: Exchange) => {
       const byWeek = new Map<string, number>()
       rows.filter((r) => r.exchange === ex).forEach((r) => byWeek.set(r.week_start, r.adtv))
 
       const y = weekStarts.map((w) => {
         const v = byWeek.get(w)
-        return v != null ? v / 1e9 : null
+        return v != null ? v / scale : null
       })
       const hasAny = y.some((v) => v !== null && v > 0)
 
@@ -156,16 +172,18 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
         y,
         marker:      { color: EXCHANGE_COLORS[ex], opacity: 0.85 },
         visible:     hasAny ? true : 'legendonly',
-        hovertemplate: `<b>${ex}</b>: ₽%{y:.1f}B<extra></extra>`,
+        hovertemplate: `<b>${ex}</b>: ₽%{y:.1f}${suffix}<extra></extra>`,
       } satisfies Plotly.Data
     })
 
-    Plotly.react(
-      divRef.current,
-      traces,
-      buildLayout(formatSymbol(symbol), theme),
-      PLOTLY_CONFIG,
-    )
+    const layout = buildLayout(formatSymbol(symbol), theme)
+    layout.yaxis = {
+      ...layout.yaxis,
+      title: { text: `ADTV (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY } },
+      ticksuffix: suffix,
+    }
+
+    Plotly.react(divRef.current, traces, layout, PLOTLY_CONFIG)
   }, [symbol, rows, theme])
 
   // Clean up on unmount
