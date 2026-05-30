@@ -33,6 +33,15 @@ interface WeeklyRow {
 
 const FONT_FAMILY = 'Inter, system-ui, sans-serif'
 
+// week_start is Monday (YYYY-MM-DD); returns e.g. "May 18 – May 24"
+function weekRangeLabel(weekStart: string): string {
+  const start = new Date(weekStart + 'T00:00:00')
+  const end   = new Date(start)
+  end.setDate(end.getDate() + 6)
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return `${fmt(start)} – ${fmt(end)}`
+}
+
 function themeTokens(theme: 'dark' | 'light') {
   if (theme === 'light') return {
     bg:      '#ffffff',
@@ -83,13 +92,14 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
       showgrid:  false,
     },
     yaxis: {
-      title: { text: 'ADTV (₽)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
+      title: { text: 'ADTV (₽B)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
       tickfont:   { color: t.text, size: 10, family: FONT_FAMILY },
       gridcolor:  t.grid,
       linecolor:  t.grid,
       tickprefix: '₽',
-      tickformat: ',.3s',
-      hoverformat:',.0f',
+      tickformat: ',.2f',
+      ticksuffix: 'B',
+      hoverformat:',.3f',
     },
     hoverlabel: {
       bgcolor:     t.hover,
@@ -124,18 +134,19 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
   useEffect(() => {
     if (!divRef.current || !rows.length) return
 
-    // Collect ordered list of week labels (X axis)
-    const weekMap = new Map<string, string>()   // week_start → week_label
-    rows.forEach((r) => weekMap.set(r.week_start, r.week_label))
-    const weeks = Array.from(weekMap.keys()).sort()
-    const labels = weeks.map((w) => weekMap.get(w)!)
+    // Collect ordered list of week starts (X axis), label as date range
+    const weekStarts = Array.from(new Set(rows.map((r) => r.week_start))).sort()
+    const labels = weekStarts.map(weekRangeLabel)
 
-    // Build one trace per exchange
+    // Build one trace per exchange; Y values pre-scaled to billions for readable ticks
     const traces: Plotly.Data[] = EXCHANGES.map((ex: Exchange) => {
       const byWeek = new Map<string, number>()
       rows.filter((r) => r.exchange === ex).forEach((r) => byWeek.set(r.week_start, r.adtv))
 
-      const y = weeks.map((w) => byWeek.get(w) ?? null)
+      const y = weekStarts.map((w) => {
+        const v = byWeek.get(w)
+        return v != null ? v / 1e9 : null
+      })
       const hasAny = y.some((v) => v !== null && v > 0)
 
       return {
@@ -145,7 +156,7 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
         y,
         marker:      { color: EXCHANGE_COLORS[ex], opacity: 0.85 },
         visible:     hasAny ? true : 'legendonly',
-        hovertemplate: `<b>${ex}</b>: ₽%{y:,.0f}<extra></extra>`,
+        hovertemplate: `<b>${ex}</b>: ₽%{y:.3f}B<extra></extra>`,
       } satisfies Plotly.Data
     })
 
