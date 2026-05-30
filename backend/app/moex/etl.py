@@ -27,7 +27,7 @@ from app.db.timescale import (
     upsert_moex_daily_value,
 )
 from app.moex.calendar import is_moex_value_day
-from app.moex.config import ASSET_TO_CANONICAL
+from app.moex.config import ASSET_TO_CANONICAL, ASSET_ISS_CODE
 from app.moex.fetcher import fetch_usdrubf_history, aggregate_asset_value_by_assetcode
 
 log = logging.getLogger(__name__)
@@ -122,9 +122,10 @@ async def _refresh_asset(asset_code: str) -> None:
     from_dt = _from_date(latest)
     today   = date.today()
 
-    log.info("MOEX ETL: fetching %s (all series) from %s to %s", asset_code, from_dt, today)
+    iss_code = ASSET_ISS_CODE[asset_code]
+    log.info("MOEX ETL: fetching %s (iss=%s, all series) from %s to %s", asset_code, iss_code, from_dt, today)
     totals: dict[date, float] = await loop.run_in_executor(
-        _executor, aggregate_asset_value_by_assetcode, asset_code, from_dt, today
+        _executor, aggregate_asset_value_by_assetcode, iss_code, from_dt, today
     )
 
     if not totals:

@@ -199,6 +199,13 @@ def _discover_secids_for_assetcode(
         d = d.replace(year=year, month=month, day=1)
     sample_dates.append(till_date)
 
+    # Also try the last few days before till_date to guarantee at least one
+    # recent trading day is hit regardless of holidays or same-day data lag.
+    for offset in range(1, 6):
+        extra = till_date - timedelta(days=offset)
+        if extra >= from_date and extra not in sample_dates:
+            sample_dates.append(extra)
+
     for sample_date in sample_dates:
         try:
             data = _get(session, url, {
