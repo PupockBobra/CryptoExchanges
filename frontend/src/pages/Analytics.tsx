@@ -77,10 +77,10 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
     barmode:       'stack',
     paper_bgcolor: t.paper,
     plot_bgcolor:  t.bg,
-    margin:        { l: 70, r: 16, t: 44, b: 80 },
+    margin:        { l: 70, r: 16, t: 44, b: 120 },
     legend: {
       orientation: 'h',
-      x: 0, y: -0.22,
+      x: 0, y: -0.35,
       font: { color: t.text, size: 11, family: FONT_FAMILY },
       bgcolor: 'transparent',
     },
@@ -97,9 +97,9 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
       gridcolor:  t.grid,
       linecolor:  t.grid,
       tickprefix: '₽',
-      tickformat: ',.2f',
+      tickformat: ',.1f',
       ticksuffix: 'B',
-      hoverformat:',.3f',
+      hoverformat:',.1f',
     },
     hoverlabel: {
       bgcolor:     t.hover,
@@ -156,7 +156,7 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
         y,
         marker:      { color: EXCHANGE_COLORS[ex], opacity: 0.85 },
         visible:     hasAny ? true : 'legendonly',
-        hovertemplate: `<b>${ex}</b>: ₽%{y:.3f}B<extra></extra>`,
+        hovertemplate: `<b>${ex}</b>: ₽%{y:.1f}B<extra></extra>`,
       } satisfies Plotly.Data
     })
 
