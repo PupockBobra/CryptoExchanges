@@ -71,35 +71,52 @@ Default spread threshold: **0.3%** — edit `ARBI_THRESHOLD_PCT` in `.env`.
 1. Add collector in `backend/app/collector/<exchange>.py` extending `BaseCollector`
 2. Register it in `backend/worker/main.py`
 3. Add exchange name to `EXCHANGES` list in `backend/app/config.py`
-## MOEX Integration (добавлено 29.05.2026)
+## MOEX Integration (завершено 31.05.2026)
 
-Интегрируем данные MOEX FORTS на страницу Weekly Performance.
-Только обороты (не цены). Вся страница переводится в рубли.
+Данные MOEX FORTS встроены в страницу Weekly Performance как отдельный
+сегмент `moex` (красный) в stacked-bar диаграммах. Только обороты, не цены.
+Вся страница в рублях.
 
-### Инструменты (SECTYPE → canonical)
-- BR → BRN/USDT (Brent)
-- NG → NATGAS/USDT (газ)  
-- GD → XAU/USDT (золото, только GD — не GL)
-- SV → XAG/USDT (серебро)
-- PT → XPT/USDT (платина)
-- PD → XPD/USDT (палладий)
+### Инструменты (внутренний код → ISS ASSETCODE → canonical symbol)
+- BR → `BR`   → BRN/USDT:USDT  (Brent)
+- NG → `NG`   → NATGAS/USDT:USDT (газ)
+- GD → `GOLD` → XAU/USDT:USDT  (золото)
+- SV → `SILV` → XAG/USDT:USDT  (серебро)
+- PT → `PLT`  → XPT/USDT:USDT  (платина)
+- PD → `PLD`  → XPD/USDT:USDT  (палладий)
+
+Маппинг в `backend/app/moex/config.py`: `ASSET_ISS_CODE`, `ASSET_TO_CANONICAL`.
 
 ### Методология ADTV
 - Поле VALUE (рубли) из ISS history-эндпоинта
-- Суммировать VALUE по всем сериям одного SECTYPE за день
-- Спреды (GDM6GDU6 и т.п.) отсекаются автоматически — у них другой SECTYPE
-- Знаменатель: торговые дни из backend/app/data/moex_calendar.json
-- ДСВД: оборот входит в числитель, но день НЕ считается торговым
+- SECID'ы определяются динамически через `_discover_secids_for_assetcode()`:
+  сэмплирует ISS market-level endpoint (`date=`) на начало каждого месяца
+  + последние 5 дней → собирает все SECID включая истёкшие контракты
+- Спреды (len > len(assetcode)+2) отсекаются автоматически
+- Затем история тянется по каждому SECID отдельно и суммируется
 
 ### Конвертация крипты в рубли
-- Подневно: оборот_USD × курс USDRUBF за тот же день
-- USDRUBF — вечный фьючерс (SECTYPE=US, LASTTRADEDATE=2100-01-01)
-- Выходные: forward-fill пятничного курса
+- Подневно: `quote_volume_USDT × moex_fx_rates.usdrub` за тот же день
+- USDRUBF — вечный фьючерс (SECID=USDRUBF), курс forward-filled на выходные
 
-### Статус (на 29.05.2026)
-- ✅ moex_calendar.json создан (backend/app/data/)
-- ✅ ETL написан (backend/app/moex/etl.py)
-- ✅ Таблицы созданы: moex_fx_rates, moex_daily_value
-- ✅ Данные загружены: 180 курсов USDRUBF, BR/GD и др. за 115+ дней
-- ⏳ Следующий шаг: подключить daily_volume_rub к эндпоинту /weekly-adtv,
-  перевести фронтенд Analytics.tsx на рубли (ось Y, тултипы, KPI-плашки)
+### Фронтенд (Analytics.tsx)
+- Ось Y: авто-масштаб — если max ADTV < 30B → миллионы (₽M), иначе миллиарды (₽B)
+- MOEX сегмент скрыт для секций `US Market` и `Spot Crypto`
+- X-ось: диапазон недели `May 18 – May 24` вместо одной даты
+- Hover: `₽83.2B` / `₽9800.1M`
+
+### Ключевые файлы
+| Путь | Назначение |
+|------|-----------|
+| `backend/app/moex/config.py` | ASSET_ISS_CODE, ASSET_TO_CANONICAL |
+| `backend/app/moex/fetcher.py` | ISS HTTP-клиент, dynamic SECID discovery |
+| `backend/app/moex/etl.py` | Планировщик ETL, upsert в БД |
+| `backend/app/db/timescale.py` | fetch_weekly_adtv_rub() |
+| `backend/app/api/routes/history.py` | GET /api/history/weekly-adtv |
+| `frontend/src/pages/Analytics.tsx` | Stacked-bar диаграммы |
+
+### Статус (на 31.05.2026)
+- ✅ ETL с динамическим discovery (нет хардкода серий)
+- ✅ Таблицы moex_fx_rates, moex_daily_value заполнены (116 торг. дней с 01.12.2025)
+- ✅ /weekly-adtv возвращает RUB-данные с MOEX как exchange='moex'
+- ✅ Analytics.tsx: рубли, авто-масштаб B/M, диапазоны на оси X
