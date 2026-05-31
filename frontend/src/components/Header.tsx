@@ -1,7 +1,7 @@
-import { BarChart2, Clock, Activity, Globe, List, Sun, Moon, Newspaper, Percent } from 'lucide-react'
+import { BarChart2, Clock, Activity, Globe, List, Sun, Moon, Newspaper, Percent, Rocket } from 'lucide-react'
 import { formatSymbol } from '../types'
 
-export type Page = 'dashboard' | 'instruments' | 'exchanges' | 'history' | 'analytics' | 'news' | 'funding'
+export type Page = 'dashboard' | 'instruments' | 'exchanges' | 'history' | 'analytics' | 'news' | 'funding' | 'launches'
 export type Theme = 'dark' | 'light'
 
 interface Props {
@@ -16,10 +16,11 @@ interface Props {
 
 const NAV: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'analytics',   label: 'Weekly Performance',        Icon: BarChart2  },
+  { id: 'launches',    label: 'Futures Launches',          Icon: Rocket     },
   { id: 'history',     label: 'Historical Prices & Vols',  Icon: Clock      },
   { id: 'dashboard',   label: 'Realtime Prices',           Icon: Activity   },
   { id: 'news',        label: 'News',                      Icon: Newspaper  },
-  { id: 'funding',    label: 'Funding Rates',             Icon: Percent    },
+  { id: 'funding',     label: 'Funding Rates',             Icon: Percent    },
   { id: 'exchanges',   label: 'Exchanges',                 Icon: Globe      },
   { id: 'instruments', label: 'Instruments',               Icon: List       },
 ]

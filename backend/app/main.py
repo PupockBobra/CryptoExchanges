@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.timescale import init_db, seed_instruments_from_config
 from app.redis_client import get_redis, close_redis
-from app.api.routes import prices, arbitrage, health, instruments, exchanges, history, news, funding
+from app.api.routes import prices, arbitrage, health, instruments, exchanges, history, news, funding, launches
 from app.backfill.ohlcv import backfill_loop
 from app.backfill.funding import funding_collector_loop
 from app.moex.etl import moex_etl_loop
@@ -100,6 +100,7 @@ app.include_router(exchanges.router,    prefix="/api/exchanges",    tags=["excha
 app.include_router(history.router,      prefix="/api/history",      tags=["history"])
 app.include_router(news.router,         prefix="/api/news",         tags=["news"])
 app.include_router(funding.router,      prefix="/api/funding",      tags=["funding"])
+app.include_router(launches.router,     prefix="/api/launches",     tags=["launches"])
 
 
 @app.websocket("/ws/{channel}")

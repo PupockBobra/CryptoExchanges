@@ -5,6 +5,7 @@ import { Instruments } from './pages/Instruments'
 import { Exchanges }   from './pages/Exchanges'
 import { History }     from './pages/History'
 import { Analytics }   from './pages/Analytics'
+import { Launches }    from './pages/Launches'
 import { News }        from './pages/News'
 import { Funding }     from './pages/Funding'
 import type { Page, Theme } from './components/Header'
@@ -66,6 +67,7 @@ export default function App() {
           {page === 'exchanges'   && <Exchanges />}
           {page === 'history'     && <History />}
           {page === 'analytics'   && <Analytics />}
+          {page === 'launches'    && <Launches />}
           {page === 'news'        && <News />}
           {page === 'funding'     && <Funding />}
         </div>
