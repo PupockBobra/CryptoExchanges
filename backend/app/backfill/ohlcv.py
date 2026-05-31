@@ -94,6 +94,11 @@ async def _backfill_one(
             since_dt = max(since_dt, BACKFILL_SINCE)
 
         since_ms = int(since_dt.timestamp() * 1000)
+        # Drop bars dated after this cutoff. Some exchanges (notably MEXC)
+        # return placeholder daily candles for years into the future; without
+        # this guard the pagination loop walks decades forward and writes
+        # tens of thousands of bogus rows.
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         rows_to_upsert: list[tuple] = []
 
         while True:
@@ -108,8 +113,12 @@ async def _backfill_one(
             if not batch:
                 break
 
+            saw_future = False
             for bar in batch:
                 ts_ms, open_, high, low, close, volume = bar[:6]
+                if ts_ms > now_ms:
+                    saw_future = True
+                    continue
                 ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
                 # Apply contract size normalisation for MEXC perps
                 base_vol  = volume * contract_size
@@ -119,7 +128,8 @@ async def _backfill_one(
                 )
 
             last_ts_ms = batch[-1][0]
-            if len(batch) < 500:
+            # Stop once the page contains future bars or runs short.
+            if saw_future or len(batch) < 500 or last_ts_ms >= now_ms:
                 break
             since_ms = last_ts_ms + 1
             await asyncio.sleep(0.3)   # polite rate limiting between pages
