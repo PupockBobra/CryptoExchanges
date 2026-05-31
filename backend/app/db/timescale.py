@@ -1,16 +1,25 @@
+import asyncio
 import json
+import logging
 import re
 import asyncpg
 from datetime import timedelta
 from app.config import settings
 
+log = logging.getLogger(__name__)
+
 _pool: asyncpg.Pool | None = None
+_pool_lock = asyncio.Lock()
 
 
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=10)
+        async with _pool_lock:
+            if _pool is None:
+                _pool = await asyncpg.create_pool(
+                    settings.database_url, min_size=2, max_size=10,
+                )
     return _pool
 
 
@@ -84,6 +93,10 @@ async def init_db():
             """)
 
         # ── 1-minute continuous aggregate (used by the realtime chart API) ────────
+        # Continuous aggregates and policies are idempotent at the SQL level via
+        # IF NOT EXISTS / if_not_exists, but some TimescaleDB minor versions
+        # raise on duplicate views.  We log instead of swallowing so genuine
+        # failures (permissions, missing extension) are visible.
         async with pool.acquire() as conn3:
             try:
                 await conn3.execute("""
@@ -101,8 +114,8 @@ async def init_db():
                     GROUP BY bucket, exchange, symbol
                     WITH NO DATA
                 """)
-            except Exception:
-                pass  # view already exists
+            except Exception as exc:
+                log.warning("init_db: create ohlcv_1m view: %s", exc)
 
             try:
                 await conn3.execute("""
@@ -113,12 +126,10 @@ async def init_db():
                         if_not_exists     => TRUE
                     )
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("init_db: add ohlcv_1m policy: %s", exc)
 
         # ── Funding rates (settled, for backtesting) ─────────────────────────────
-        # Entire block is idempotent — all errors are swallowed so that a fresh
-        # DB (tables don't exist yet) and an already-initialized DB both work.
         async with pool.acquire() as conn_fr:
             try:
                 await conn_fr.execute("""
@@ -131,8 +142,8 @@ async def init_db():
                         UNIQUE (time, symbol, exchange)
                     );
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("init_db: create funding_rates table: %s", exc)
             try:
                 await conn_fr.execute("""
                     SELECT create_hypertable(
@@ -141,15 +152,15 @@ async def init_db():
                         migrate_data  => TRUE
                     );
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("init_db: hypertable funding_rates: %s", exc)
             try:
                 await conn_fr.execute("""
                     CREATE INDEX IF NOT EXISTS idx_funding_rates_sym_ex
                         ON funding_rates (symbol, exchange, time DESC);
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("init_db: index funding_rates: %s", exc)
 
         # ── MOEX tables ──────────────────────────────────────────────────────────
         async with pool.acquire() as conn_moex:
@@ -187,8 +198,9 @@ async def init_db():
                     await conn4.execute(
                         f"SELECT add_retention_policy('{table}', INTERVAL '{interval}')"
                     )
-                except Exception:
-                    pass  # table may not exist yet (ohlcv_1m on first boot)
+                except Exception as exc:
+                    # table may not exist yet (ohlcv_1m on first boot)
+                    log.warning("init_db: retention for %s: %s", table, exc)
 
 
 # ── Price ticks ──────────────────────────────────────────────────────────────
@@ -328,18 +340,30 @@ async def create_instrument(
     )
 
 
+# Whitelist of columns that may be updated.  Hard-coded to prevent
+# SQL injection: column names cannot be parameterised, so they must
+# never come from user input.
+_INSTRUMENT_UPDATABLE_COLUMNS = frozenset({
+    "canonical", "type", "base_asset", "quote_asset",
+    "description", "enabled", "aliases",
+})
+
+
 async def update_instrument(id_: int, **fields) -> asyncpg.Record | None:
-    """Update arbitrary fields on an instrument row."""
+    """Update whitelisted fields on an instrument row."""
     pool = await get_pool()
-    if not fields:
+
+    # Drop any field not in the whitelist
+    safe = {k: v for k, v in fields.items() if k in _INSTRUMENT_UPDATABLE_COLUMNS}
+    if not safe:
         return await pool.fetchrow("SELECT * FROM instruments WHERE id = $1", id_)
 
     # Serialize aliases dict to JSON string if present
-    if "aliases" in fields and isinstance(fields["aliases"], dict):
-        fields["aliases"] = json.dumps(fields["aliases"])
+    if "aliases" in safe and isinstance(safe["aliases"], dict):
+        safe["aliases"] = json.dumps(safe["aliases"])
 
-    cols = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(fields))
-    vals = list(fields.values())
+    cols = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(safe))
+    vals = list(safe.values())
     return await pool.fetchrow(
         f"UPDATE instruments SET {cols}, updated_at = NOW() WHERE id = $1 RETURNING *",
         id_, *vals,
@@ -472,8 +496,10 @@ async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
     """
     Weekly ADTV in RUB per symbol × exchange × ISO week.
 
-    Crypto volumes are converted USDT → RUB by joining with moex_fx_rates
-    (USDRUBF daily settlement price, forward-filled for weekends).
+    Crypto volumes are converted USDT → RUB using the daily USDRUBF rate from
+    moex_fx_rates.  Missing dates (weekends/holidays/ISS gaps) are forward-filled
+    from the most recent known rate via a LEFT JOIN LATERAL — INNER JOIN would
+    silently drop crypto volume on every day MOEX wasn't trading.
     MOEX FORTS volumes are already in RUB and contribute a synthetic 'moex' exchange row.
 
     asset_code → canonical symbol mapping (FORTS):
@@ -494,8 +520,15 @@ async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
                     (SUM(o.quote_volume * fx.usdrub) / NULLIF(COUNT(*), 0))::numeric, 2
                 )                                                        AS adtv
             FROM ohlcv_daily o
-            INNER JOIN moex_fx_rates fx ON fx.date = o.ts::date
+            LEFT JOIN LATERAL (
+                SELECT usdrub
+                FROM moex_fx_rates
+                WHERE date <= o.ts::date
+                ORDER BY date DESC
+                LIMIT 1
+            ) fx ON TRUE
             WHERE o.ts >= '2026-01-01'
+              AND fx.usdrub IS NOT NULL
             GROUP BY date_trunc('week', o.ts), o.symbol, o.exchange
         ),
         moex_rub AS (
@@ -531,7 +564,9 @@ async def fetch_daily_volume_rub() -> list[asyncpg.Record]:
     """
     Daily volume in RUB per symbol × exchange for the last 30 days.
 
-    Crypto volumes: quote_volume_USDT × daily USDRUBF rate.
+    Crypto volumes: quote_volume_USDT × USDRUBF rate.  Missing FX days
+    are forward-filled via LEFT JOIN LATERAL so weekend/holiday crypto
+    volume is preserved instead of being silently dropped.
     MOEX FORTS: value_rub from moex_daily_value (already in RUB).
     """
     pool = await get_pool()
@@ -545,8 +580,15 @@ async def fetch_daily_volume_rub() -> list[asyncpg.Record]:
                 o.exchange,
                 ROUND((o.quote_volume * fx.usdrub)::numeric, 2)              AS volume_rub
             FROM ohlcv_daily o
-            INNER JOIN moex_fx_rates fx ON fx.date = o.ts::date
-            WHERE o.ts::date >= CURRENT_DATE - INTERVAL '30 days'
+            LEFT JOIN LATERAL (
+                SELECT usdrub
+                FROM moex_fx_rates
+                WHERE date <= o.ts::date
+                ORDER BY date DESC
+                LIMIT 1
+            ) fx ON TRUE
+            WHERE o.ts >= (CURRENT_DATE - INTERVAL '30 days')
+              AND fx.usdrub IS NOT NULL
         ),
         moex_rub AS (
             SELECT

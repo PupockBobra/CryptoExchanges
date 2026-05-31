@@ -136,27 +136,33 @@ _REFRESH_INTERVAL_S = 3600  # refresh cache every hour
 
 _cache: list[dict] = []
 _cache_updated_at: datetime | None = None
+_refresh_lock = asyncio.Lock()
 
 
 async def _do_refresh() -> None:
+    """
+    Replace _cache atomically. Lock prevents concurrent rebuilds
+    (e.g. background loop + POST /refresh racing) and torn reads.
+    """
     global _cache, _cache_updated_at
-    exchange_rows, known_since = await asyncio.gather(
-        asyncio.gather(*[_fetch_one(ex) for ex in _EXCHANGES]),
-        _fetch_known_since(),
-    )
-    all_rows: list[dict] = []
-    for batch in exchange_rows:
-        for row in batch:
-            row["known_since"] = known_since.get(row["base"])
-            all_rows.append(row)
-    all_rows.sort(
-        key=lambda r: (r["listed_at"] is None, r["listed_at"] or "", r["base"]),
-        reverse=False,
-    )
-    all_rows.reverse()
-    _cache = all_rows
-    _cache_updated_at = datetime.now(timezone.utc)
-    log.info("launches: cache updated (%d rows)", len(_cache))
+    async with _refresh_lock:
+        exchange_rows, known_since = await asyncio.gather(
+            asyncio.gather(*[_fetch_one(ex) for ex in _EXCHANGES]),
+            _fetch_known_since(),
+        )
+        all_rows: list[dict] = []
+        for batch in exchange_rows:
+            for row in batch:
+                row["known_since"] = known_since.get(row["base"])
+                all_rows.append(row)
+        all_rows.sort(
+            key=lambda r: (r["listed_at"] is None, r["listed_at"] or "", r["base"]),
+            reverse=False,
+        )
+        all_rows.reverse()
+        _cache = all_rows
+        _cache_updated_at = datetime.now(timezone.utc)
+        log.info("launches: cache updated (%d rows)", len(_cache))
 
 
 async def launches_refresh_loop() -> None:
