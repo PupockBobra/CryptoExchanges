@@ -11,6 +11,7 @@ import {
 import { useTheme, chartColors } from '../hooks/useTheme'
 import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol, fmtVolume } from '../types'
 import type { DailyCandle, HistoryMetrics, HistoryMetricsByExchange, Exchange, SymbolSection } from '../types'
+import { SectionHeading } from '../components/SectionHeading'
 
 function readThemeFromDom() {
   return (document.documentElement.getAttribute('data-theme') ?? 'light') as 'dark' | 'light'
@@ -165,26 +166,6 @@ function CandleChart({ symbol, exchange }: CandleChartProps) {
       {status === 'loading' && <div className="chart-overlay">Loading…</div>}
       {status === 'empty'   && <div className="chart-overlay">No data for this exchange</div>}
       <div ref={containerRef} />
-    </div>
-  )
-}
-
-// ── Section heading ───────────────────────────────────────────────────────────
-
-function SectionHeading({ label }: { label: string }) {
-  return (
-    <div style={{ margin: '28px 0 14px' }}>
-      <h2 style={{
-        margin: 0,
-        fontSize: 11,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '.1em',
-        color: 'var(--muted)',
-      }}>
-        {label}
-      </h2>
-      <div style={{ height: 1, background: 'var(--border)', marginTop: 8 }} />
     </div>
   )
 }

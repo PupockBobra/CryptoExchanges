@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Plotly from 'plotly.js-dist-min'
 import { RefreshCw } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
+import { SectionHeading } from '../components/SectionHeading'
 
 const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
@@ -138,18 +139,6 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
   )
 }
 
-function SectionHeading({ label }: { label: string }) {
-  return (
-    <div style={{ margin: '28px 0 14px' }}>
-      <h2 style={{
-        margin: 0, fontSize: 11, fontWeight: 600,
-        textTransform: 'uppercase', letterSpacing: '.1em', color: 'var(--muted)',
-      }}>{label}</h2>
-      <div style={{ height: 1, background: 'var(--border)', marginTop: 8 }} />
-    </div>
-  )
-}
-
 export function DailyVolume() {
   const [allRows, setAllRows] = useState<DailyRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -168,7 +157,18 @@ export function DailyVolume() {
 
   useEffect(() => { load() }, [])
 
-  const symbols = Array.from(new Set(allRows.map(r => r.symbol))).sort()
+  const symbols = useMemo(
+    () => Array.from(new Set(allRows.map(r => r.symbol))).sort(),
+    [allRows],
+  )
+  const rowsBySymbol = useMemo(() => {
+    const map = new Map<string, DailyRow[]>()
+    for (const r of allRows) {
+      const arr = map.get(r.symbol)
+      if (arr) arr.push(r); else map.set(r.symbol, [r])
+    }
+    return map
+  }, [allRows])
 
   return (
     <div>
@@ -206,7 +206,7 @@ export function DailyVolume() {
                     <DailyVolumeChart
                       key={sym}
                       symbol={sym}
-                      rows={allRows.filter(r => r.symbol === sym)}
+                      rows={rowsBySymbol.get(sym) ?? []}
                     />
                   ))}
                 </div>

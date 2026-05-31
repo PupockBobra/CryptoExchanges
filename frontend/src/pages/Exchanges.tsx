@@ -2,17 +2,9 @@ import { useState, useEffect } from 'react'
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { EXCHANGES, EXCHANGE_COLORS, fmtBytes } from '../types'
 import type { ExchangeStats, Exchange } from '../types'
+import { timeAgo } from '../utils/format'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/exchanges/'
-
-function timeAgo(ts: string | null): string {
-  if (!ts) return '—'
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
-  if (diff < 5)   return 'just now'
-  if (diff < 60)  return `${diff}s ago`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  return `${Math.floor(diff / 3600)}h ago`
-}
 
 function uptime(ts: string | null): string {
   if (!ts) return '—'

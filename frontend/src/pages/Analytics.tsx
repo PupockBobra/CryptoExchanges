@@ -9,12 +9,13 @@
  * same visual output as plotly.express.bar(..., barmode='stack').
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Plotly from 'plotly.js-dist-min'
 import { RefreshCw } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
+import { SectionHeading } from '../components/SectionHeading'
 
 // Sections where MOEX has no data — exclude from traces entirely
 const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
@@ -204,26 +205,6 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
   )
 }
 
-// ── Section heading ───────────────────────────────────────────────────────────
-
-function SectionHeading({ label }: { label: string }) {
-  return (
-    <div style={{ margin: '28px 0 14px' }}>
-      <h2 style={{
-        margin: 0,
-        fontSize: 11,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '.1em',
-        color: 'var(--muted)',
-      }}>
-        {label}
-      </h2>
-      <div style={{ height: 1, background: 'var(--border)', marginTop: 8 }} />
-    </div>
-  )
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function Analytics() {
@@ -244,8 +225,20 @@ export function Analytics() {
 
   useEffect(() => { load() }, [])
 
-  // Distinct ordered symbols
-  const symbols = Array.from(new Set(allRows.map((r) => r.symbol))).sort()
+  // Distinct ordered symbols and per-symbol row index — memoize so we don't
+  // re-scan allRows on every render or for every chart card.
+  const symbols = useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.symbol))).sort(),
+    [allRows],
+  )
+  const rowsBySymbol = useMemo(() => {
+    const map = new Map<string, WeeklyRow[]>()
+    for (const r of allRows) {
+      const arr = map.get(r.symbol)
+      if (arr) arr.push(r); else map.set(r.symbol, [r])
+    }
+    return map
+  }, [allRows])
 
 
   return (
@@ -288,7 +281,7 @@ export function Analytics() {
                     <WeeklyAdtvChart
                       key={sym}
                       symbol={sym}
-                      rows={allRows.filter((r) => r.symbol === sym)}
+                      rows={rowsBySymbol.get(sym) ?? []}
                     />
                   ))}
                 </div>

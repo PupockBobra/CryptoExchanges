@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Rocket } from 'lucide-react'
 import { EXCHANGE_COLORS } from '../types'
+import { daysAgo } from '../utils/format'
+import { SectionHeading } from '../components/SectionHeading'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/launches'
 
@@ -99,17 +101,6 @@ const EXCHANGE_LABEL: Record<string, string> = {
   binance: 'Binance', okx: 'OKX', mexc: 'MEXC', bybit: 'Bybit', hyperliquid: 'Hyperliquid',
 }
 
-function daysAgo(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
-  if (diff === 0) return 'today'
-  if (diff === 1) return '1 day ago'
-  if (diff < 30)  return `${diff} days ago`
-  if (diff < 365) return `${Math.floor(diff / 30)}mo ago`
-  return `${Math.floor(diff / 365)}y ago`
-}
-
-
 function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
   const map = new Map<string, GroupedInstrument>()
   for (const r of rows) {
@@ -156,24 +147,6 @@ function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 const SECTION_ORDER: Category[] = ['New', 'Commodities', 'Stocks', 'Indexes', 'Other']
-
-function SectionHeading({ label, count, accent }: { label: string; count: number; accent?: boolean }) {
-  return (
-    <div style={{ margin: '24px 0 10px' }}>
-      <h2 style={{
-        margin: 0, fontSize: 11, fontWeight: 700,
-        textTransform: 'uppercase', letterSpacing: '.1em',
-        color: accent ? '#10b981' : 'var(--muted)',
-        display: 'flex', alignItems: 'center', gap: 8,
-      }}>
-        {accent && <Rocket size={12} />}
-        {label}
-        <span style={{ fontWeight: 400, opacity: 0.6 }}>({count})</span>
-      </h2>
-      <div style={{ height: 1, background: accent ? '#10b98140' : 'var(--border)', marginTop: 6 }} />
-    </div>
-  )
-}
 
 function InstrumentTable({ groups }: { groups: GroupedInstrument[] }) {
   return (
@@ -293,19 +266,28 @@ export function Launches() {
 
   useEffect(() => { load() }, [])
 
-  const allGroups = groupRows(rows)
+  // groupRows is O(rows). Memoize so re-renders triggered by state changes
+  // (Refresh button, updatedAt) don't re-sort on every render.
+  const allGroups = useMemo(() => groupRows(rows), [rows])
 
-  // Split into sections
-  const newGroups  = allGroups.filter(g => g.is_new)
-  const byCategory = new Map<Exclude<Category, 'New'>, GroupedInstrument[]>()
-  for (const g of allGroups) {
-    const cat = getCategory(g.base)
-    if (!byCategory.has(cat)) byCategory.set(cat, [])
-    byCategory.get(cat)!.push(g)
-  }
+  const { newGroups, byCategory } = useMemo(() => {
+    const byCat = new Map<Exclude<Category, 'New'>, GroupedInstrument[]>()
+    for (const g of allGroups) {
+      const cat = getCategory(g.base)
+      if (!byCat.has(cat)) byCat.set(cat, [])
+      byCat.get(cat)!.push(g)
+    }
+    return {
+      newGroups:  allGroups.filter(g => g.is_new),
+      byCategory: byCat,
+    }
+  }, [allGroups])
 
   const totalInstruments = allGroups.length
-  const totalExchanges   = new Set(rows.map(r => r.exchange)).size
+  const totalExchanges   = useMemo(
+    () => new Set(rows.map(r => r.exchange)).size,
+    [rows],
+  )
 
   return (
     <div>
@@ -361,7 +343,12 @@ export function Launches() {
           {/* New launches section */}
           {newGroups.length > 0 && (
             <>
-              <SectionHeading label={`New Launches — last ${NEW_DAYS} days`} count={newGroups.length} accent />
+              <SectionHeading
+                label={`New Launches — last ${NEW_DAYS} days`}
+                count={newGroups.length}
+                accent
+                icon={<Rocket size={12} />}
+              />
               <InstrumentTable groups={newGroups} />
             </>
           )}

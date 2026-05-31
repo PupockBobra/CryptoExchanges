@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, TrendingUp, TrendingDown, Download } from 'lucide-react'
+import { EXCHANGE_COLORS } from '../types'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/funding'
 
@@ -40,14 +41,6 @@ interface HistoryPoint {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const EXCHANGE_COLORS: Record<string, string> = {
-  binance:     '#f0b90b',
-  okx:         '#3772ff',
-  bybit:       '#f7a600',
-  mexc:        '#0ecc83',
-  hyperliquid: '#a855f7',
-}
 
 function fmtRate(r: number): string {
   return (r * 100).toFixed(4) + '%'
@@ -140,7 +133,7 @@ function HistoryChart({ data }: { data: HistoryPoint[] }) {
           }).join(' ')
           return (
             <path key={ex} d={pathData} fill="none"
-              stroke={EXCHANGE_COLORS[ex] ?? 'var(--accent)'}
+              stroke={(EXCHANGE_COLORS as Record<string, string>)[ex] ?? 'var(--accent)'}
               strokeWidth="1.5" strokeLinejoin="round" />
           )
         })}
@@ -149,7 +142,7 @@ function HistoryChart({ data }: { data: HistoryPoint[] }) {
         {Object.keys(byEx).map(ex => (
           <span key={ex} className="fr-legend-item">
             <span className="fr-legend-dot"
-              style={{ background: EXCHANGE_COLORS[ex] ?? 'var(--accent)' }} />
+              style={{ background: (EXCHANGE_COLORS as Record<string, string>)[ex] ?? 'var(--accent)' }} />
             {ex}
           </span>
         ))}
@@ -174,7 +167,7 @@ function RatesMatrix({ rates }: { rates: RateEntry[] }) {
             <th>Symbol</th>
             {exchanges.map(ex => (
               <th key={ex}>
-                <span className="fr-ex-dot" style={{ background: EXCHANGE_COLORS[ex] ?? 'var(--accent)' }} />
+                <span className="fr-ex-dot" style={{ background: (EXCHANGE_COLORS as Record<string, string>)[ex] ?? 'var(--accent)' }} />
                 {ex}
               </th>
             ))}
