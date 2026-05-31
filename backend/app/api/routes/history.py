@@ -3,10 +3,13 @@ REST API for historical daily OHLCV data and derived metrics.
 
 Endpoints
 ---------
-GET /api/history/ohlcv    ?symbol=BTC/USDT[&exchange=binance][&limit=365]
-GET /api/history/metrics               → ADTV YTD / week / WoW for every symbol
-GET /api/history/metrics/exchanges     → same, broken down per exchange
-POST /api/history/refresh              → trigger an immediate incremental backfill
+GET  /api/history/ohlcv             ?symbol=BTC/USDT[&exchange=binance][&limit=365]
+GET  /api/history/metrics                      → ADTV YTD / week / WoW per symbol
+GET  /api/history/metrics/exchanges            → same, broken down per exchange
+GET  /api/history/weekly-adtv                  → weekly ADTV (RUB) per symbol×exchange×ISO week
+GET  /api/history/daily-volume                 → daily volume (RUB), last 30 days
+POST /api/history/refresh                      → trigger an incremental OHLCV backfill
+POST /api/history/moex-refresh                 → trigger a MOEX FORTS ETL pass
 """
 
 import asyncio

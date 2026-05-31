@@ -1,6 +1,7 @@
 # Crypto Arbitrage Tracker
 
-Real-time cross-exchange arbitrage detection: Binance, OKX, Kraken.
+Real-time cross-exchange arbitrage detection across **Binance, OKX, Bybit,
+MEXC, Hyperliquid** + MOEX FORTS turnover data integration.
 
 ## Architecture
 
@@ -17,7 +18,8 @@ frontend (React/Vite)  ←websocket→  backend (FastAPI)
 - **collector** (`backend/worker/main.py`) — AsyncIO process that connects to exchange WebSockets via ccxt, publishes ticks to Redis channel `prices:{symbol}`
 - **backend** (`backend/app/main.py`) — FastAPI app, subscribes to Redis, serves REST + WebSocket to frontend, writes price history to TimescaleDB
 - **arbitrage detector** (`backend/app/arbitrage/detector.py`) — compares latest prices across exchanges, emits alerts when spread > threshold
-- **frontend** (`frontend/src/`) — React + Vite, TradingView Lightweight Charts, WebSocket-driven price/alert feeds
+- **MOEX ETL** (`backend/app/moex/etl.py`) — background loop that fetches USDRUBF rates and FORTS turnover per asset from ISS
+- **frontend** (`frontend/src/`) — React + Vite, TradingView Lightweight Charts + Plotly stacked bars, WebSocket-driven price/alert feeds
 
 ## Local dev
 
@@ -49,11 +51,20 @@ Nginx terminates TLS and reverse-proxies to backend:8000 and frontend:80. See `n
 | Path | Purpose |
 |------|---------|
 | `backend/app/config.py` | All env-var settings via Pydantic |
+| `backend/app/exchanges.py` | Single source of truth for exchange ccxt classes / perp types |
 | `backend/app/collector/base.py` | Base WebSocket collector |
 | `backend/app/arbitrage/detector.py` | Spread detection logic |
+| `backend/app/db/timescale.py` | asyncpg pool + all SQL queries |
 | `backend/app/db/migrations/001_init.sql` | TimescaleDB schema |
+| `backend/app/moex/{config,fetcher,etl,calendar}.py` | MOEX FORTS integration |
+| `backend/app/api/routes/launches.py` | Hourly cache of non-crypto perp listings |
 | `frontend/src/components/Chart.tsx` | TradingView chart wrapper |
-| `frontend/src/hooks/useWebSocket.ts` | Reconnecting WebSocket hook |
+| `frontend/src/components/SectionHeading.tsx` | Shared section divider |
+| `frontend/src/utils/format.ts` | daysAgo / timeAgo / fmtVolume helpers |
+| `frontend/src/hooks/useWebSocket.ts` | Reconnecting WebSocket with exponential backoff |
+| `frontend/src/pages/Analytics.tsx` | Weekly ADTV stacked-bar charts |
+| `frontend/src/pages/DailyVolume.tsx` | Daily volume stacked-bar charts (30d) |
+| `frontend/src/pages/Launches.tsx` | Non-crypto perp futures listings page |
 
 ## Environment variables
 
@@ -69,8 +80,10 @@ Default spread threshold: **0.3%** — edit `ARBI_THRESHOLD_PCT` in `.env`.
 ## Adding a new exchange
 
 1. Add collector in `backend/app/collector/<exchange>.py` extending `BaseCollector`
-2. Register it in `backend/worker/main.py`
-3. Add exchange name to `EXCHANGES` list in `backend/app/config.py`
+2. Register it in `backend/worker/main.py` (`COLLECTORS` dict)
+3. Add the ccxt class + perp type to `backend/app/exchanges.py`
+4. Add exchange name to `EXCHANGES` list in `backend/app/config.py`
+5. Add color + label to `frontend/src/types/index.ts` (`EXCHANGE_COLORS`, `EXCHANGES`)
 ## MOEX Integration (завершено 31.05.2026)
 
 Данные MOEX FORTS встроены в страницу Weekly Performance как отдельный
