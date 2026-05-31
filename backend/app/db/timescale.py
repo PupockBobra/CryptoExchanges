@@ -558,6 +558,52 @@ async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
     )
 
 
+async def fetch_daily_volume_rub() -> list[asyncpg.Record]:
+    """
+    Daily volume in RUB per symbol × exchange for the last 30 days.
+
+    Crypto volumes: quote_volume_USDT × daily USDRUBF rate.
+    MOEX FORTS: value_rub from moex_daily_value (already in RUB).
+    """
+    pool = await get_pool()
+    return await pool.fetch(
+        """
+        WITH crypto_rub AS (
+            SELECT
+                o.ts::date                                                   AS date,
+                to_char(o.ts::date, 'Mon DD')                                AS date_label,
+                o.symbol,
+                o.exchange,
+                ROUND((o.quote_volume * fx.usdrub)::numeric, 2)              AS volume_rub
+            FROM ohlcv_daily o
+            INNER JOIN moex_fx_rates fx ON fx.date = o.ts::date
+            WHERE o.ts::date >= CURRENT_DATE - INTERVAL '30 days'
+        ),
+        moex_rub AS (
+            SELECT
+                m.date,
+                to_char(m.date, 'Mon DD')                                    AS date_label,
+                CASE m.asset_code
+                    WHEN 'BR' THEN 'BRN/USDT:USDT'
+                    WHEN 'NG' THEN 'NATGAS/USDT:USDT'
+                    WHEN 'GD' THEN 'XAU/USDT:USDT'
+                    WHEN 'SV' THEN 'XAG/USDT:USDT'
+                    WHEN 'PT' THEN 'XPT/USDT:USDT'
+                    WHEN 'PD' THEN 'XPD/USDT:USDT'
+                END                                                           AS symbol,
+                'moex'::text                                                  AS exchange,
+                ROUND(m.value_rub::numeric, 2)                                AS volume_rub
+            FROM moex_daily_value m
+            WHERE m.date >= CURRENT_DATE - INTERVAL '30 days'
+        )
+        SELECT * FROM crypto_rub
+        UNION ALL
+        SELECT * FROM moex_rub
+        ORDER BY date, symbol, exchange
+        """
+    )
+
+
 async def fetch_history_metrics_by_exchange() -> list[asyncpg.Record]:
     """Per-exchange ADTV breakdown used for the detail tooltip."""
     pool = await get_pool()

@@ -20,6 +20,7 @@ from app.db.timescale import (
     fetch_history_metrics_by_exchange,
     fetch_weekly_adtv,
     fetch_weekly_adtv_rub,
+    fetch_daily_volume_rub,
 )
 
 log = logging.getLogger(__name__)
@@ -93,6 +94,25 @@ async def get_weekly_adtv():
             "exchange":     r["exchange"],
             "days_in_week": r["days_in_week"],
             "adtv":         float(r["adtv"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/daily-volume")
+async def get_daily_volume():
+    """
+    Daily trading volume in RUB per symbol × exchange for the last 30 days.
+    Crypto: quote_volume × USDRUBF rate. MOEX: value_rub.
+    """
+    rows = await fetch_daily_volume_rub()
+    return [
+        {
+            "date":       str(r["date"]),
+            "date_label": r["date_label"].strip(),
+            "symbol":     r["symbol"],
+            "exchange":   r["exchange"],
+            "volume_rub": float(r["volume_rub"] or 0),
         }
         for r in rows
     ]

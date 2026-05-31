@@ -4,7 +4,8 @@ import { Dashboard }   from './pages/Dashboard'
 import { Instruments } from './pages/Instruments'
 import { Exchanges }   from './pages/Exchanges'
 import { History }     from './pages/History'
-import { Analytics }   from './pages/Analytics'
+import { Analytics }    from './pages/Analytics'
+import { DailyVolume } from './pages/DailyVolume'
 import { Launches }    from './pages/Launches'
 import { News }        from './pages/News'
 import { Funding }     from './pages/Funding'
@@ -66,8 +67,9 @@ export default function App() {
           {page === 'instruments' && <Instruments />}
           {page === 'exchanges'   && <Exchanges />}
           {page === 'history'     && <History />}
-          {page === 'analytics'   && <Analytics />}
-          {page === 'launches'    && <Launches />}
+          {page === 'analytics'     && <Analytics />}
+          {page === 'daily-volume'  && <DailyVolume />}
+          {page === 'launches'      && <Launches />}
           {page === 'news'        && <News />}
           {page === 'funding'     && <Funding />}
         </div>
