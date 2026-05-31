@@ -81,7 +81,7 @@ async def _fetch_one(exchange_id: str) -> list[dict]:
 
     rows: list[dict] = []
     for symbol, mkt in markets.items():
-        if not (mkt.get("swap") or ":" in symbol):
+        if mkt.get("type") != "swap":
             continue
 
         base: str = mkt.get("base", "")
