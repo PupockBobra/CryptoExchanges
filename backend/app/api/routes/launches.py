@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
+from app.db.timescale import get_pool
 
 log = logging.getLogger(__name__)
 
@@ -99,14 +100,53 @@ async def _fetch_one(exchange_id: str) -> list[dict]:
     return rows
 
 
+async def _fetch_known_since() -> dict[str, str]:
+    """
+    Returns {base: first_ohlcv_date} aggregated across ALL exchanges.
+
+    'base' is the part of the canonical symbol before '/' (e.g. 'XAU' from
+    'XAU/USDT:USDT').  By aggregating across exchanges, we catch cases where
+    an instrument is well-known on Binance/OKX even though we only recently
+    added an alias for it on MEXC — avoiding false "New" flags caused by
+    same-day known_since == listed_at.
+
+    XAUT is aliased to XAU because MEXC uses XAUT as the ccxt base while
+    our canonical symbols use XAU.
+    """
+    _ALIASES = {"XAUT": "XAU", "NGAS": "NATGAS", "UKOIL": "BRN", "USOIL": "WTI"}
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT SPLIT_PART(symbol, '/', 1) AS base, MIN(ts::date)::text AS first_date "
+        "FROM ohlcv_daily GROUP BY SPLIT_PART(symbol, '/', 1)"
+    )
+    result: dict[str, str] = {}
+    for r in rows:
+        base = r["base"].upper()
+        canon = _ALIASES.get(base, base)
+        # Keep the earliest date if there are multiple aliases for the same canon base
+        if canon not in result or r["first_date"] < result[canon]:
+            result[canon] = r["first_date"]
+    return result
+
+
 @router.get("/")
 async def get_launches():
     """
     Fetch all non-crypto perpetual swap markets from every tracked exchange.
-    Returns a flat list sorted by listed_at descending (newest first, nulls last).
+    Adds `known_since` field: earliest date we have OHLCV data for this
+    (symbol, exchange) pair. Frontend uses this to detect genuinely new
+    listings vs. instruments with stale/updated metadata from the exchange.
     """
-    results = await asyncio.gather(*[_fetch_one(ex) for ex in _EXCHANGES])
-    all_rows: list[dict] = [row for batch in results for row in batch]
+    exchange_rows, known_since = await asyncio.gather(
+        asyncio.gather(*[_fetch_one(ex) for ex in _EXCHANGES]),
+        _fetch_known_since(),
+    )
+
+    all_rows: list[dict] = []
+    for batch in exchange_rows:
+        for row in batch:
+            row["known_since"] = known_since.get(row["base"])
+            all_rows.append(row)
 
     all_rows.sort(
         key=lambda r: (r["listed_at"] is None, r["listed_at"] or "", r["base"]),

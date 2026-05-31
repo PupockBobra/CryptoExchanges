@@ -5,16 +5,18 @@ import { EXCHANGE_COLORS } from '../types'
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/launches'
 
 interface LaunchRow {
-  symbol:    string
-  base:      string
-  exchange:  string
-  listed_at: string | null
+  symbol:      string
+  base:        string
+  exchange:    string
+  listed_at:   string | null
+  known_since: string | null  // earliest date in our ohlcv_daily for this (symbol, exchange)
 }
 
 interface GroupedInstrument {
   base:        string
-  newest_date: string | null
-  exchanges:   { exchange: string; symbol: string; listed_at: string | null }[]
+  newest_date: string | null   // most recent listed_at across exchanges
+  is_new:      boolean         // true only if genuinely new (no old ohlcv data)
+  exchanges:   { exchange: string; symbol: string; listed_at: string | null; known_since: string | null }[]
 }
 
 type Category = 'New' | 'Commodities' | 'Metals' | 'Stocks' | 'US Market' | 'Other'
@@ -106,19 +108,28 @@ function daysAgo(dateStr: string | null): string {
   return `${Math.floor(diff / 365)}y ago`
 }
 
-function isNew(dateStr: string | null): boolean {
-  if (!dateStr) return false
-  return (Date.now() - new Date(dateStr).getTime()) < NEW_DAYS * 86400000
+
+function rowIsNew(r: LaunchRow): boolean {
+  // "New" means: listed_at is within NEW_DAYS AND we have no older ohlcv data
+  // that would prove the instrument was already tracked before the supposed listing date.
+  if (!r.listed_at) return false
+  const listedRecently = (Date.now() - new Date(r.listed_at).getTime()) < NEW_DAYS * 86400000
+  if (!listedRecently) return false
+  // If we have ohlcv data from before listed_at, the metadata is stale/unreliable
+  if (r.known_since && r.known_since < r.listed_at) return false
+  return true
 }
 
 function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
   const map = new Map<string, GroupedInstrument>()
   for (const r of rows) {
-    if (!map.has(r.base)) map.set(r.base, { base: r.base, newest_date: null, exchanges: [] })
+    if (!map.has(r.base))
+      map.set(r.base, { base: r.base, newest_date: null, is_new: false, exchanges: [] })
     const g = map.get(r.base)!
-    g.exchanges.push({ exchange: r.exchange, symbol: r.symbol, listed_at: r.listed_at })
+    g.exchanges.push({ exchange: r.exchange, symbol: r.symbol, listed_at: r.listed_at, known_since: r.known_since })
     if (r.listed_at && (g.newest_date === null || r.listed_at > g.newest_date))
       g.newest_date = r.listed_at
+    if (rowIsNew(r)) g.is_new = true
   }
 
   return Array.from(map.values()).map((g) => ({
@@ -183,7 +194,7 @@ function InstrumentTable({ groups }: { groups: GroupedInstrument[] }) {
                   {i === 0 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {g.base}
-                      {isNew(g.newest_date) && (
+                      {g.is_new && (
                         <span style={{
                           background: '#10b981', color: '#fff', fontSize: 10,
                           fontWeight: 700, borderRadius: 4, padding: '1px 5px',
@@ -261,7 +272,7 @@ export function Launches() {
   const allGroups = groupRows(rows)
 
   // Split into sections
-  const newGroups  = allGroups.filter(g => isNew(g.newest_date))
+  const newGroups  = allGroups.filter(g => g.is_new)
   const byCategory = new Map<Exclude<Category, 'New'>, GroupedInstrument[]>()
   for (const g of allGroups) {
     const cat = getCategory(g.base)
