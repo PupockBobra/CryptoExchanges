@@ -43,12 +43,14 @@ NON_CRYPTO_BASES: frozenset[str] = frozenset({
     "KO", "PEP", "PG", "JNJ", "LLY", "ABBV", "MRK", "BMY",
 })
 
-# Fields (in priority order) that may contain the listing timestamp (ms)
+# Fields (in priority order) that may contain the listing timestamp
+# Values are either millisecond integers or ISO-8601 strings.
 _LISTING_DATE_FIELDS = (
-    "onboardDate",   # Binance
-    "listTime",      # OKX
-    "createTime",    # MEXC
+    "onboardDate",            # Binance (ms int)
+    "listTime",               # OKX (ms int)
+    "createTime",             # MEXC (ms int)
     "launched_at",
+    "lastGrowthModeChangeTime",  # Hyperliquid (ISO-8601 str) — proxy for launch date
 )
 
 _HL_PREFIX = re.compile(r"^(XYZ|CASH|FLX|KM)-", re.IGNORECASE)
@@ -58,7 +60,16 @@ _EXCHANGES = ["binance", "okx", "mexc", "hyperliquid"]
 def _extract_listed_at(info: dict) -> str | None:
     for field in _LISTING_DATE_FIELDS:
         val = info.get(field)
-        if val:
+        if not val:
+            continue
+        # ISO-8601 string (Hyperliquid lastGrowthModeChangeTime)
+        if isinstance(val, str) and "T" in val:
+            try:
+                return val[:10]   # 'YYYY-MM-DD'
+            except Exception:
+                pass
+        # Millisecond integer (Binance, OKX, MEXC)
+        else:
             try:
                 ts_s = int(val) / 1000
                 return datetime.fromtimestamp(ts_s, tz=timezone.utc).date().isoformat()

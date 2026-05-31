@@ -19,7 +19,7 @@ interface GroupedInstrument {
   exchanges:   { exchange: string; symbol: string; listed_at: string | null; known_since: string | null }[]
 }
 
-type Category = 'New' | 'Commodities' | 'Metals' | 'Stocks' | 'US Market' | 'Other'
+type Category = 'New' | 'Commodities' | 'Stocks' | 'Indexes' | 'Other'
 
 // ── Lookups ───────────────────────────────────────────────────────────────────
 
@@ -68,14 +68,17 @@ const BASE_NAMES: Record<string, string> = {
   LLY: 'Eli Lilly', ABBV: 'AbbVie Inc.', MRK: 'Merck & Co.', BMY: 'Bristol-Myers Squibb',
 }
 
+// Commodities = energy + metals + agricultural (all physical assets)
 const COMMODITIES = new Set([
+  // Energy
   'BRN','BZ','BRENT','UKOIL','USOIL','OIL','WTI','NG','NGAS','NATGAS',
-  'WHEAT','CORN','SOYBEAN','COTTON','COFFEE','COCOA','SUGAR','COPPER',
+  // Metals
+  'GOLD','XAU','XAUT','SILVER','XAG','PLATINUM','XPT','PALLADIUM','XPD','COPPER',
+  // Agricultural
+  'WHEAT','CORN','SOYBEAN','COTTON','COFFEE','COCOA','SUGAR',
 ])
-const METALS = new Set([
-  'GOLD','XAU','XAUT','SILVER','XAG','PLATINUM','XPT','PALLADIUM','XPD',
-])
-const US_MARKET = new Set([
+// Indexes = indices, ETFs, volatility
+const INDEXES = new Set([
   'QQQ','SPY','SPX','SPX500','NAS100','NASDAQ','NDX','DOW','DJI',
   'NIKKEI','DAX','FTSE','CAC','ES','NQ','RUT','VIX',
 ])
@@ -83,9 +86,7 @@ const US_MARKET = new Set([
 function getCategory(base: string): Exclude<Category, 'New'> {
   const b = base.toUpperCase()
   if (COMMODITIES.has(b)) return 'Commodities'
-  if (METALS.has(b))      return 'Metals'
-  if (US_MARKET.has(b))   return 'US Market'
-  // Assume everything else with a known name is a stock
+  if (INDEXES.has(b))     return 'Indexes'
   if (BASE_NAMES[b])      return 'Stocks'
   return 'Other'
 }
@@ -150,7 +151,7 @@ function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-const SECTION_ORDER: Category[] = ['New', 'Commodities', 'Metals', 'Stocks', 'US Market', 'Other']
+const SECTION_ORDER: Category[] = ['New', 'Commodities', 'Stocks', 'Indexes', 'Other']
 
 function SectionHeading({ label, count, accent }: { label: string; count: number; accent?: boolean }) {
   return (
