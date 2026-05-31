@@ -489,6 +489,7 @@ async def fetch_history_metrics() -> list[asyncpg.Record]:
             SELECT ts, symbol, SUM(quote_volume) AS daily_total
             FROM ohlcv_daily
             WHERE ts >= '2026-01-01'
+              AND ts <  CURRENT_DATE + INTERVAL '1 day'
             GROUP BY ts, symbol
         ) daily
         GROUP BY symbol
@@ -533,6 +534,7 @@ async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
                 LIMIT 1
             ) fx ON TRUE
             WHERE o.ts >= '2026-01-01'
+              AND o.ts <  CURRENT_DATE + INTERVAL '1 day'
               AND fx.usdrub IS NOT NULL
             GROUP BY date_trunc('week', o.ts), o.symbol, o.exchange
         ),
@@ -621,7 +623,12 @@ async def fetch_daily_volume_rub() -> list[asyncpg.Record]:
 
 
 async def fetch_history_metrics_by_exchange() -> list[asyncpg.Record]:
-    """Per-exchange ADTV breakdown used for the detail tooltip."""
+    """Per-exchange ADTV breakdown used for the detail tooltip.
+
+    Upper bound (CURRENT_DATE + 1 day) prevents the planner from locking
+    every chunk in the hypertable — including leftover future-dated
+    placeholder chunks — which otherwise hits max_locks_per_transaction.
+    """
     pool = await get_pool()
     return await pool.fetch(
         """
@@ -639,6 +646,7 @@ async def fetch_history_metrics_by_exchange() -> list[asyncpg.Record]:
             )::numeric, 2)                        AS adtv_last_week
         FROM ohlcv_daily
         WHERE ts >= '2026-01-01'
+          AND ts <  CURRENT_DATE + INTERVAL '1 day'
         GROUP BY symbol, exchange
         ORDER BY symbol, exchange
         """
