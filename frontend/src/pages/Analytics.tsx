@@ -145,7 +145,7 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
 
     // Auto-scale: if peak weekly ADTV across all exchanges < 30B → use millions
     const maxAdtv = Math.max(...rows.map((r) => r.adtv))
-    const useMillions = maxAdtv < 30e9
+    const useMillions = maxAdtv < 50e9
     const scale  = useMillions ? 1e6 : 1e9
     const suffix = useMillions ? 'M' : 'B'
 
