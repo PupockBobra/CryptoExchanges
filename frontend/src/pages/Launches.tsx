@@ -15,11 +15,19 @@ interface LaunchRow {
   known_since: string | null  // earliest date in our ohlcv_daily for this (symbol, exchange)
 }
 
+interface ExchangeRow {
+  exchange:    string
+  symbol:      string
+  listed_at:   string | null
+  known_since: string | null
+  is_recent:   boolean   // listed_at within NEW_DAYS — true regardless of group state
+}
+
 interface GroupedInstrument {
-  base:        string
-  newest_date: string | null   // most recent listed_at across exchanges
-  is_new:      boolean         // true only if genuinely new (no old ohlcv data)
-  exchanges:   { exchange: string; symbol: string; listed_at: string | null; known_since: string | null }[]
+  base:             string
+  newest_date:      string | null   // most recent listed_at across exchanges
+  is_new_product:   boolean         // first listing across ALL exchanges within NEW_DAYS
+  exchanges:        ExchangeRow[]
 }
 
 type Category = 'New' | 'Commodities' | 'Stocks' | 'Indexes' | 'Other'
@@ -102,31 +110,41 @@ const EXCHANGE_LABEL: Record<string, string> = {
   binance: 'Binance', okx: 'OKX', mexc: 'MEXC', bybit: 'Bybit', hyperliquid: 'Hyperliquid',
 }
 
+function isRecent(dateStr: string | null): boolean {
+  if (!dateStr) return false
+  return (Date.now() - new Date(dateStr).getTime()) < NEW_DAYS * 86400000
+}
+
 function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
   const map = new Map<string, GroupedInstrument>()
   for (const r of rows) {
     if (!map.has(r.base))
-      map.set(r.base, { base: r.base, newest_date: null, is_new: false, exchanges: [] })
+      map.set(r.base, {
+        base: r.base, newest_date: null, is_new_product: false, exchanges: [],
+      })
     const g = map.get(r.base)!
-    g.exchanges.push({ exchange: r.exchange, symbol: r.symbol, listed_at: r.listed_at, known_since: r.known_since })
+    g.exchanges.push({
+      exchange:    r.exchange,
+      symbol:      r.symbol,
+      listed_at:   r.listed_at,
+      known_since: r.known_since,
+      is_recent:   isRecent(r.listed_at),
+    })
     if (r.listed_at && (g.newest_date === null || r.listed_at > g.newest_date))
       g.newest_date = r.listed_at
   }
 
-  // Determine is_new at GROUP level using the EARLIEST listing date across all exchanges.
-  // If any exchange shows an older listing date, the instrument is not new — it's just
-  // a new exchange adding an existing product (e.g. QCOM on Bybit after Binance/OKX).
+  // is_new_product: every (known) listed_at is within NEW_DAYS AND we have no
+  // older ohlcv data. Brand-new product on the market.
   for (const g of map.values()) {
     const dates = g.exchanges.map(e => e.listed_at).filter(Boolean) as string[]
-    if (dates.length === 0) { g.is_new = false; continue }
+    if (dates.length === 0) { g.is_new_product = false; continue }
 
     const minDate = dates.reduce((a, b) => a < b ? a : b)
-    const ageMs   = Date.now() - new Date(minDate).getTime()
-    if (ageMs >= NEW_DAYS * 86400000) { g.is_new = false; continue }
+    if (!isRecent(minDate)) { g.is_new_product = false; continue }
 
-    // Also guard against stale ohlcv data on any exchange
     const knownSince = g.exchanges.map(e => e.known_since).filter(Boolean).sort()[0] ?? null
-    g.is_new = !knownSince || knownSince >= minDate
+    g.is_new_product = !knownSince || knownSince >= minDate
   }
 
   return Array.from(map.values()).map((g) => ({
@@ -143,6 +161,35 @@ function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
     if (!b.newest_date) return -1
     return b.newest_date.localeCompare(a.newest_date)
   })
+}
+
+/** Rows for "New on Exchange" — flattened, one per (base, recent listing). */
+interface RecentListing {
+  base:         string
+  base_name:    string
+  exchange:     string
+  symbol:       string
+  listed_at:    string
+}
+
+function collectRecentListings(groups: GroupedInstrument[]): RecentListing[] {
+  const out: RecentListing[] = []
+  for (const g of groups) {
+    if (g.is_new_product) continue   // already in the "New Products" section
+    for (const ex of g.exchanges) {
+      if (ex.is_recent && ex.listed_at) {
+        out.push({
+          base:      g.base,
+          base_name: BASE_NAMES[g.base.toUpperCase()] ?? '',
+          exchange:  ex.exchange,
+          symbol:    ex.symbol,
+          listed_at: ex.listed_at,
+        })
+      }
+    }
+  }
+  // newest first
+  return out.sort((a, b) => b.listed_at.localeCompare(a.listed_at))
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -173,7 +220,7 @@ function InstrumentTable({ groups }: { groups: GroupedInstrument[] }) {
                   {i === 0 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {g.base}
-                      {g.is_new && (
+                      {g.is_new_product && (
                         <span style={{
                           background: '#10b981', color: '#fff', fontSize: 10,
                           fontWeight: 700, borderRadius: 4, padding: '1px 5px',
@@ -215,6 +262,57 @@ function InstrumentTable({ groups }: { groups: GroupedInstrument[] }) {
               </tr>
             ))
           )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RecentListingsTable({ rows }: { rows: RecentListing[] }) {
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+            {['Ticker', 'Base Asset', 'Exchange', 'Symbol (exchange)', 'Listed', 'Age'].map(h => (
+              <th key={h} style={{
+                padding: '9px 14px', textAlign: 'left', fontWeight: 600,
+                fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em',
+                color: 'var(--muted)', whiteSpace: 'nowrap',
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={`${r.base}-${r.exchange}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={{ padding: '8px 14px', fontWeight: 700, color: 'var(--title)', whiteSpace: 'nowrap' }}>
+                {r.base}
+              </td>
+              <td style={{ padding: '8px 14px', color: 'var(--muted)' }}>
+                {r.base_name}
+              </td>
+              <td style={{ padding: '8px 14px' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: 2, flexShrink: 0,
+                    background: (EXCHANGE_COLORS as Record<string, string>)[r.exchange] ?? '#888',
+                    display: 'inline-block',
+                  }} />
+                  {EXCHANGE_LABEL[r.exchange] ?? r.exchange}
+                </span>
+              </td>
+              <td style={{ padding: '8px 14px', color: 'var(--muted)', fontFamily: 'monospace', fontSize: 12 }}>
+                {r.symbol}
+              </td>
+              <td style={{ padding: '8px 14px', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                {r.listed_at}
+              </td>
+              <td style={{ padding: '8px 14px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                {daysAgo(r.listed_at)}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -271,7 +369,7 @@ export function Launches() {
   // (Refresh button, updatedAt) don't re-sort on every render.
   const allGroups = useMemo(() => groupRows(rows), [rows])
 
-  const { newGroups, byCategory } = useMemo(() => {
+  const { newGroups, newOnExchange, byCategory } = useMemo(() => {
     const byCat = new Map<Exclude<Category, 'New'>, GroupedInstrument[]>()
     for (const g of allGroups) {
       const cat = getCategory(g.base)
@@ -279,8 +377,9 @@ export function Launches() {
       byCat.get(cat)!.push(g)
     }
     return {
-      newGroups:  allGroups.filter(g => g.is_new),
-      byCategory: byCat,
+      newGroups:     allGroups.filter(g => g.is_new_product),
+      newOnExchange: collectRecentListings(allGroups),
+      byCategory:    byCat,
     }
   }, [allGroups])
 
@@ -322,16 +421,29 @@ export function Launches() {
 
       {!loading && loaded && (
         <>
-          {/* New launches section */}
+          {/* Brand-new products (first listing anywhere within NEW_DAYS) */}
           {newGroups.length > 0 && (
             <>
               <SectionHeading
-                label={`New Launches — last ${NEW_DAYS} days`}
+                label={`New Products — last ${NEW_DAYS} days`}
                 count={newGroups.length}
                 accent
                 icon={<Rocket size={12} />}
               />
               <InstrumentTable groups={newGroups} />
+            </>
+          )}
+
+          {/* Existing products that picked up a fresh listing on some exchange */}
+          {newOnExchange.length > 0 && (
+            <>
+              <SectionHeading
+                label={`New on Exchange — last ${NEW_DAYS} days`}
+                count={newOnExchange.length}
+                accent
+                icon={<Rocket size={12} />}
+              />
+              <RecentListingsTable rows={newOnExchange} />
             </>
           )}
 
