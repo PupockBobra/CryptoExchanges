@@ -96,7 +96,7 @@ const NEW_DAYS = 7
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const EXCHANGE_LABEL: Record<string, string> = {
-  binance: 'Binance', okx: 'OKX', mexc: 'MEXC', hyperliquid: 'Hyperliquid',
+  binance: 'Binance', okx: 'OKX', mexc: 'MEXC', bybit: 'Bybit', hyperliquid: 'Hyperliquid',
 }
 
 function daysAgo(dateStr: string | null): string {
