@@ -332,6 +332,27 @@ export function Launches() {
         </button>
       </div>
 
+      {/* Exchange source badges */}
+      <div className="card" style={{ marginBottom: 16, padding: '10px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '.08em', color: 'var(--muted)' }}>
+            Data from
+          </span>
+          {(['binance','okx','mexc','bybit'] as const).map(ex => (
+            <span key={ex} style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+              fontSize: 13, fontWeight: 500 }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: 3, flexShrink: 0,
+                background: (EXCHANGE_COLORS as Record<string, string>)[ex],
+                display: 'inline-block',
+              }} />
+              {EXCHANGE_LABEL[ex]}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {loading && <p className="empty">Scanning exchanges…</p>}
       {error   && <p className="empty" style={{ color: 'var(--red)' }}>{error}</p>}
 
