@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Plotly from 'plotly.js-dist-min'
 import { RefreshCw } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
-import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
+import { VOLUME_EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
@@ -153,8 +153,8 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
 
     // Exchanges to include: omit moex for sections that have no MOEX data
     const visibleExchanges = MOEX_SECTIONS.includes(section)
-      ? EXCHANGES.filter((ex) => ex !== 'moex')
-      : EXCHANGES
+      ? VOLUME_EXCHANGES.filter((ex) => ex !== 'moex')
+      : VOLUME_EXCHANGES
 
     // Build one trace per exchange; Y values pre-scaled for readable ticks
     const traces: Plotly.Data[] = visibleExchanges.map((ex: Exchange) => {

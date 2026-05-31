@@ -57,7 +57,13 @@ export interface ExchangeStats {
 
 export type Exchange = 'binance' | 'okx' | 'bybit' | 'mexc' | 'hyperliquid' | 'moex'
 
-export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']
+// Crypto exchanges only — used by all pages that work with real-time prices,
+// OHLCV history, or exchange connection stats. MOEX is a data-only source
+// (we ingest FORTS turnover but never connect a WebSocket or fetch prices).
+export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid']
+
+// Includes MOEX — used by analytics pages that visualise stacked turnover.
+export const VOLUME_EXCHANGES: Exchange[] = [...EXCHANGES, 'moex']
 
 export const EXCHANGE_COLORS: Record<Exchange, string> = {
   binance:     '#f0b90b',
