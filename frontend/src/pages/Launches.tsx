@@ -110,17 +110,6 @@ function daysAgo(dateStr: string | null): string {
 }
 
 
-function rowIsNew(r: LaunchRow): boolean {
-  // "New" means: listed_at is within NEW_DAYS AND we have no older ohlcv data
-  // that would prove the instrument was already tracked before the supposed listing date.
-  if (!r.listed_at) return false
-  const listedRecently = (Date.now() - new Date(r.listed_at).getTime()) < NEW_DAYS * 86400000
-  if (!listedRecently) return false
-  // If we have ohlcv data from before listed_at, the metadata is stale/unreliable
-  if (r.known_since && r.known_since < r.listed_at) return false
-  return true
-}
-
 function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
   const map = new Map<string, GroupedInstrument>()
   for (const r of rows) {
@@ -130,7 +119,22 @@ function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
     g.exchanges.push({ exchange: r.exchange, symbol: r.symbol, listed_at: r.listed_at, known_since: r.known_since })
     if (r.listed_at && (g.newest_date === null || r.listed_at > g.newest_date))
       g.newest_date = r.listed_at
-    if (rowIsNew(r)) g.is_new = true
+  }
+
+  // Determine is_new at GROUP level using the EARLIEST listing date across all exchanges.
+  // If any exchange shows an older listing date, the instrument is not new — it's just
+  // a new exchange adding an existing product (e.g. QCOM on Bybit after Binance/OKX).
+  for (const g of map.values()) {
+    const dates = g.exchanges.map(e => e.listed_at).filter(Boolean) as string[]
+    if (dates.length === 0) { g.is_new = false; continue }
+
+    const minDate = dates.reduce((a, b) => a < b ? a : b)
+    const ageMs   = Date.now() - new Date(minDate).getTime()
+    if (ageMs >= NEW_DAYS * 86400000) { g.is_new = false; continue }
+
+    // Also guard against stale ohlcv data on any exchange
+    const knownSince = g.exchanges.map(e => e.known_since).filter(Boolean).sort()[0] ?? null
+    g.is_new = !knownSince || knownSince >= minDate
   }
 
   return Array.from(map.values()).map((g) => ({
