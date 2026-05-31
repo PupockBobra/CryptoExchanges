@@ -85,7 +85,7 @@ async def _redis_broadcast_loop():
             await asyncio.sleep(2)
 
 
-app = FastAPI(title="Arbi Tracker", lifespan=lifespan)
+app = FastAPI(title="Crypto Tracker", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

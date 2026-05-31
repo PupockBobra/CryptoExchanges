@@ -5,6 +5,7 @@ import { useTheme } from '../hooks/useTheme'
 import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
+import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
 
 const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
@@ -188,6 +189,10 @@ export function DailyVolume() {
           Refresh
         </button>
       </div>
+
+      <ExchangeSourceBadges
+        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']}
+      />
 
       {loading ? (
         <p className="empty">Loading daily volume data…</p>
