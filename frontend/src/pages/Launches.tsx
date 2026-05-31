@@ -93,7 +93,7 @@ function daysAgo(dateStr: string | null): string {
 
 function isNew(dateStr: string | null): boolean {
   if (!dateStr) return false
-  return (Date.now() - new Date(dateStr).getTime()) < 30 * 86400000
+  return (Date.now() - new Date(dateStr).getTime()) < 7 * 86400000
 }
 
 function groupRows(rows: LaunchRow[]): GroupedInstrument[] {
