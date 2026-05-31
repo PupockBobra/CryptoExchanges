@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import {
   createChart,
@@ -179,17 +179,18 @@ interface CardProps {
 }
 
 function InstrumentHistoryCard({ metrics, exchangeMetrics, symbol }: CardProps) {
-  const [selectedEx, setSelectedEx] = useState<Exchange>('binance')
-
-  // Pick the first exchange that has data as default
-  useEffect(() => {
-    if (exchangeMetrics.length) {
-      const first = exchangeMetrics.find((e) =>
-        EXCHANGES.includes(e.exchange as Exchange)
-      )
-      if (first) setSelectedEx(first.exchange as Exchange)
-    }
-  }, [exchangeMetrics])
+  // Default to the first exchange that has data — computed via useMemo from
+  // the symbol identity so we don't reset the user's manual tab selection
+  // every time the parent polls and rebuilds exchangeMetrics.
+  // Re-derived only when the symbol changes.
+  const defaultEx = useMemo<Exchange>(() => {
+    const first = exchangeMetrics.find(
+      (e) => EXCHANGES.includes(e.exchange as Exchange) && (e.ytd_days ?? 0) > 0,
+    )
+    return (first?.exchange as Exchange) ?? 'binance'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol])
+  const [selectedEx, setSelectedEx] = useState<Exchange>(defaultEx)
 
   const exColor = EXCHANGE_COLORS[selectedEx] ?? '#6366f1'
 

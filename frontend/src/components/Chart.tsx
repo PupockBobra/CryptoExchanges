@@ -99,6 +99,10 @@ export function Chart({ symbol }: Props) {
       layout: { background: { color: c.bg }, textColor: c.text },
       grid:   { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
     })
+    // Volume bar color is not part of the chart layout — must be re-applied
+    // on the series itself, otherwise it stays in whatever color the chart
+    // was created with and looks wrong after a theme switch.
+    volumeSeriesRef.current?.applyOptions({ color: c.volBar })
   }, [theme])
 
   // ── Load historical OHLCV for every exchange ────────────────────────────
@@ -152,8 +156,11 @@ export function Chart({ symbol }: Props) {
       })
 
       if (volMap.size > 0) {
+        // Use the theme-appropriate volume color so bars match the rest of
+        // the chart instead of being locked to the dark-mode color.
+        const volColor = chartColors(theme).volBar
         const volData: HistogramData[] = Array.from(volMap.entries())
-          .map(([t, v]) => ({ time: t as Time, value: v, color: '#334155' }))
+          .map(([t, v]) => ({ time: t as Time, value: v, color: volColor }))
           .sort((a, b) => (a.time as number) - (b.time as number))
         volumeSeriesRef.current?.setData(volData)
       }

@@ -24,6 +24,7 @@ from app.db.timescale import (
     upsert_ohlcv_daily,
     get_ohlcv_daily_latest_ts,
 )
+from app.exchanges import EXCHANGE_CLS, PERP_MARKET_TYPE
 
 log = logging.getLogger(__name__)
 
@@ -34,28 +35,10 @@ REFRESH_INTERVAL = 6 * 3600   # re-run every 6 hours to refresh today's partial 
 # Global lock prevents multiple concurrent backfill runs from fighting over DB locks
 _backfill_running = asyncio.Lock()
 
-# ccxt exchange classes
-_EXCHANGE_CLS: dict[str, type] = {
-    "binance":     ccxt_async.binance,
-    "okx":         ccxt_async.okx,
-    "bybit":       ccxt_async.bybit,
-    "mexc":        ccxt_async.mexc,
-    "hyperliquid": ccxt_async.hyperliquid,
-}
-
-# defaultType to use for perpetual contracts on each exchange
-_PERP_MARKET_TYPE: dict[str, str] = {
-    "binance":     "future",   # USDT-margined perpetuals
-    "okx":         "swap",
-    "bybit":       "linear",
-    "mexc":        "swap",
-    "hyperliquid": "swap",     # USDC-margined perpetuals
-}
-
 
 def _make_exchange(exchange_id: str, is_perp: bool) -> ccxt_async.Exchange:
-    cls = _EXCHANGE_CLS[exchange_id]
-    market_type = _PERP_MARKET_TYPE[exchange_id] if is_perp else "spot"
+    cls = EXCHANGE_CLS[exchange_id]
+    market_type = PERP_MARKET_TYPE[exchange_id] if is_perp else "spot"
     return cls({
         "enableRateLimit": True,
         "options": {"defaultType": market_type},

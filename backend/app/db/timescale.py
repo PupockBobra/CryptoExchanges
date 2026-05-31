@@ -244,6 +244,7 @@ async def fetch_ohlcv(symbol: str, exchange: str, interval: str = "1 minute", li
     """
     pool = await get_pool()
     td = _parse_interval(interval)
+    lookback = td * limit
     rows = await pool.fetch(
         """
         SELECT time_bucket($1, bucket) AS bucket,
@@ -255,15 +256,19 @@ async def fetch_ohlcv(symbol: str, exchange: str, interval: str = "1 minute", li
                sum(ticks)::int     AS ticks
         FROM ohlcv_1m
         WHERE symbol = $2 AND exchange = $3
-          AND bucket > NOW() - ($4 * $1::interval)
+          AND bucket > NOW() - $4::interval
         GROUP BY time_bucket($1, bucket), exchange, symbol
         ORDER BY 1 DESC
         """,
-        td, symbol, exchange, limit,
+        td, symbol, exchange, lookback,
     )
     if rows:
         return rows
-    # Fallback: aggregate directly from price_ticks (first minutes after cold start)
+    # Fallback: aggregate directly from price_ticks (first minutes after cold start).
+    # The lookback is (limit × interval) — compute it in Python as a timedelta
+    # so the SQL doesn't need to multiply an interval by an integer (which is
+    # version-dependent in PostgreSQL).
+    lookback = td * limit
     return await pool.fetch(
         """
         SELECT time_bucket($1, ts) AS bucket,
@@ -275,11 +280,11 @@ async def fetch_ohlcv(symbol: str, exchange: str, interval: str = "1 minute", li
                count(*)::int   AS ticks
         FROM price_ticks
         WHERE symbol = $2 AND exchange = $3
-          AND ts > NOW() - ($4 * $1)
+          AND ts > NOW() - $4::interval
         GROUP BY bucket, exchange, symbol
         ORDER BY bucket DESC
         """,
-        td, symbol, exchange, limit,
+        td, symbol, exchange, lookback,
     )
 
 

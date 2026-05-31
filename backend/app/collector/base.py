@@ -195,17 +195,18 @@ class BaseCollector(ABC):
         ask  = float(ticker.get("ask")  or 0)
         last = float(ticker.get("last") or 0)
 
-        # Some exchange WS streams (e.g. MEXC spot) omit 'last'; use mid-price.
+        # Some exchange WS streams (e.g. MEXC spot) omit 'last'.  Synthesize
+        # from bid+ask mid-price only — falling back to a one-sided bid/ask
+        # was producing false arbitrage signals when the missing side moved.
         if not last:
             if bid and ask:
                 last = (bid + ask) / 2
-            elif bid:
-                last = bid
-            elif ask:
-                last = ask
             else:
-                return
+                return  # not enough info to derive a fair last price
 
+        # If only one side of the book is present, mirror to the other side so
+        # downstream consumers always see a non-zero bid/ask, but never use a
+        # synthesized side as a trade price for arbitrage decisions.
         if not bid:
             bid = last
         if not ask:

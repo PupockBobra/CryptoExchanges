@@ -30,6 +30,7 @@ from app.db.timescale import (
     upsert_funding_rates,
     get_funding_rate_latest_ts,
 )
+from app.exchanges import EXCHANGE_CLS, PERP_MARKET_TYPE, FUNDING_INTERVAL_HOURS
 from app.redis_client import get_redis
 
 log = logging.getLogger(__name__)
@@ -40,40 +41,16 @@ PAGE_LIMIT       = 1_000  # records per paginated request
 REDIS_TTL        = 600    # 10-min Redis TTL for current rates
 STARTUP_DELAY    = 120    # seconds to wait before starting backfill (let OHLCV go first)
 
-_EXCHANGE_CLS: dict[str, type] = {
-    "binance":     ccxt_async.binance,
-    "okx":         ccxt_async.okx,
-    "bybit":       ccxt_async.bybit,
-    "mexc":        ccxt_async.mexc,
-    "hyperliquid": ccxt_async.hyperliquid,
-}
-
-_PERP_MARKET_TYPE: dict[str, str] = {
-    "binance":     "future",
-    "okx":         "swap",
-    "bybit":       "linear",
-    "mexc":        "swap",
-    "hyperliquid": "swap",
-}
-
-_FUNDING_INTERVAL_HOURS: dict[str, int] = {
-    "binance":     8,
-    "okx":         8,
-    "bybit":       8,
-    "mexc":        8,
-    "hyperliquid": 1,   # Hyperliquid uses hourly funding
-}
-
 _backfill_lock = asyncio.Lock()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_exchange(exchange_id: str) -> ccxt_async.Exchange:
-    cls = _EXCHANGE_CLS[exchange_id]
+    cls = EXCHANGE_CLS[exchange_id]
     return cls({
         "enableRateLimit": True,
-        "options": {"defaultType": _PERP_MARKET_TYPE[exchange_id]},
+        "options": {"defaultType": PERP_MARKET_TYPE[exchange_id]},
         "timeout": 20_000,
     })
 
@@ -96,7 +73,7 @@ async def _backfill_symbol(
     since_ms: int,
 ) -> int:
     """Paginate through funding_rate_history and upsert to DB. Returns rows stored."""
-    ih = _FUNDING_INTERVAL_HOURS.get(exchange_id, 8)
+    ih = FUNDING_INTERVAL_HOURS.get(exchange_id, 8)
     exchange = _make_exchange(exchange_id)
     rows: list[tuple] = []
     current_since = since_ms
@@ -206,7 +183,7 @@ async def _poll_live(work: list[tuple[str, str, str]]) -> None:
         by_exchange.setdefault(ex_id, []).append((ex_sym, canonical))
 
     for ex_id, sym_pairs in by_exchange.items():
-        ih = _FUNDING_INTERVAL_HOURS.get(ex_id, 8)
+        ih = FUNDING_INTERVAL_HOURS.get(ex_id, 8)
         exchange = _make_exchange(ex_id)
         try:
             for ex_sym, canonical in sym_pairs:
@@ -304,7 +281,7 @@ async def _build_work_list() -> list[tuple[str, str, str]]:
         aliases: dict = json.loads(raw) if isinstance(raw, str) else (raw or {})
 
         for ex_id in settings.exchanges:
-            if ex_id not in _EXCHANGE_CLS:
+            if ex_id not in EXCHANGE_CLS:
                 continue
             alias_val = aliases.get(ex_id)
             if alias_val is None and ex_id in aliases:

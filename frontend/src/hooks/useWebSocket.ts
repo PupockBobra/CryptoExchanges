@@ -5,9 +5,13 @@ interface Options {
   enabled?: boolean
 }
 
+const INITIAL_BACKOFF_MS = 1000
+const MAX_BACKOFF_MS     = 30_000
+
 export function useWebSocket(channel: string, { onMessage, enabled = true }: Options) {
-  const wsRef = useRef<WebSocket | null>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wsRef       = useRef<WebSocket | null>(null)
+  const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const backoffRef  = useRef(INITIAL_BACKOFF_MS)
   // Tracks whether the current effect instance has been cleaned up.
   // Prevents the stale onclose callback from reopening a WebSocket to the
   // OLD channel after the symbol changes (stale-closure reconnect bug).
@@ -21,6 +25,11 @@ export function useWebSocket(channel: string, { onMessage, enabled = true }: Opt
     const ws = new WebSocket(`${base}/ws/${channel}`)
     wsRef.current = ws
 
+    ws.onopen = () => {
+      // Successful connect — reset the backoff so a future drop starts fast again.
+      backoffRef.current = INITIAL_BACKOFF_MS
+    }
+
     ws.onmessage = (e) => {
       try {
         onMessageRef.current(JSON.parse(e.data))
@@ -31,10 +40,10 @@ export function useWebSocket(channel: string, { onMessage, enabled = true }: Opt
 
     ws.onclose = () => {
       // Only schedule a reconnect if this connection is still the active one.
-      // Without this guard, cleanup calls ws.close() → onclose fires →
-      // setTimeout enqueues connect() with the OLD channel still in scope.
       if (!cancelledRef.current) {
-        timerRef.current = setTimeout(connect, 2000)
+        const delay = backoffRef.current
+        backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS)
+        timerRef.current = setTimeout(connect, delay)
       }
     }
 
@@ -42,10 +51,11 @@ export function useWebSocket(channel: string, { onMessage, enabled = true }: Opt
   }, [channel, enabled])
 
   useEffect(() => {
-    cancelledRef.current = false  // mark this effect instance as active
+    cancelledRef.current = false
+    backoffRef.current = INITIAL_BACKOFF_MS
     connect()
     return () => {
-      cancelledRef.current = true  // block any pending onclose from reconnecting
+      cancelledRef.current = true
       timerRef.current && clearTimeout(timerRef.current)
       wsRef.current?.close()
     }

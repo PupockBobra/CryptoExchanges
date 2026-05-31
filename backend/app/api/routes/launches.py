@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from app.db.timescale import get_pool
+from app.exchanges import EXCHANGE_CLS
 
 log = logging.getLogger(__name__)
 
@@ -72,8 +73,7 @@ def _extract_listed_at(info: dict) -> str | None:
 
 async def _fetch_one(exchange_id: str) -> list[dict]:
     try:
-        import ccxt.async_support as ccxt_a
-        klass = getattr(ccxt_a, exchange_id)
+        klass = EXCHANGE_CLS[exchange_id]
         ex = klass({"options": {"defaultType": "swap"}})
         try:
             markets = await ex.load_markets()
