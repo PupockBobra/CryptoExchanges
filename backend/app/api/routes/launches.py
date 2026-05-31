@@ -49,12 +49,13 @@ NON_CRYPTO_BASES: frozenset[str] = frozenset({
 _LISTING_DATE_FIELDS = (
     "onboardDate",   # Binance
     "listTime",      # OKX
+    "launchTime",    # Bybit
     "createTime",    # MEXC
     "launched_at",
 )
 
 _HL_PREFIX = re.compile(r"^(XYZ|CASH|FLX|KM)-", re.IGNORECASE)
-_EXCHANGES = ["binance", "okx", "mexc", "hyperliquid"]
+_EXCHANGES = ["binance", "okx", "mexc", "bybit"]
 
 
 def _extract_listed_at(info: dict) -> str | None:
