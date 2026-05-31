@@ -468,37 +468,6 @@ async def fetch_history_metrics() -> list[asyncpg.Record]:
     )
 
 
-async def fetch_weekly_adtv() -> list[asyncpg.Record]:
-    """
-    Weekly ADTV (Average Daily Trading Volume, USDT) per symbol × exchange × ISO week.
-
-    Returns one row per (week_start, symbol, exchange) containing:
-      - week_start  : Monday of the ISO week (date)
-      - week_label  : human-readable label  e.g. "Jan 06"
-      - symbol      : canonical symbol
-      - exchange    : exchange id
-      - days_in_week: number of trading days we have data for in that week
-      - adtv        : SUM(quote_volume) / days_in_week  for that week
-    """
-    pool = await get_pool()
-    return await pool.fetch(
-        """
-        SELECT
-            date_trunc('week', ts)::date                    AS week_start,
-            to_char(date_trunc('week', ts), 'Mon DD')       AS week_label,
-            symbol,
-            exchange,
-            COUNT(*)                                         AS days_in_week,
-            ROUND((SUM(quote_volume) / NULLIF(COUNT(*),0))::numeric, 2)
-                                                             AS adtv
-        FROM ohlcv_daily
-        WHERE ts >= '2026-01-01'
-        GROUP BY date_trunc('week', ts), symbol, exchange
-        ORDER BY week_start, symbol, exchange
-        """
-    )
-
-
 async def fetch_weekly_adtv_rub() -> list[asyncpg.Record]:
     """
     Weekly ADTV in RUB per symbol × exchange × ISO week.
@@ -772,47 +741,6 @@ async def get_moex_asset_latest_date(asset_code: str):
     pool = await get_pool()
     return await pool.fetchval(
         "SELECT MAX(date) FROM moex_daily_value WHERE asset_code = $1", asset_code
-    )
-
-
-async def fetch_moex_weekly_volumes() -> list:
-    """
-    Weekly summed VALUE per asset_code for the current year.
-    Returns rows: (week_start date, asset_code, total_value_rub).
-    """
-    pool = await get_pool()
-    return await pool.fetch(
-        """
-        SELECT
-            date_trunc('week', date)::date AS week_start,
-            asset_code,
-            SUM(value_rub)::float          AS total_value_rub
-        FROM moex_daily_value
-        WHERE date >= date_trunc('year', NOW())
-        GROUP BY week_start, asset_code
-        ORDER BY week_start, asset_code
-        """
-    )
-
-
-async def fetch_crypto_weekly_volumes_usdt() -> list:
-    """
-    Weekly summed quote_volume (USDT) per symbol × exchange for the current year.
-    Returns rows: (week_start date, symbol, exchange, total_usdt).
-    """
-    pool = await get_pool()
-    return await pool.fetch(
-        """
-        SELECT
-            date_trunc('week', ts)::date AS week_start,
-            symbol,
-            exchange,
-            SUM(quote_volume)::float     AS total_usdt
-        FROM ohlcv_daily
-        WHERE ts >= date_trunc('year', NOW())
-        GROUP BY week_start, symbol, exchange
-        ORDER BY week_start, symbol, exchange
-        """
     )
 
 

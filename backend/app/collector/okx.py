@@ -1,4 +1,3 @@
-import asyncio
 import ccxt.pro as ccxtpro
 from app.collector.base import BaseCollector
 from app.config import settings

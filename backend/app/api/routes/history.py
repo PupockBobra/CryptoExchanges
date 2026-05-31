@@ -18,7 +18,6 @@ from app.db.timescale import (
     fetch_ohlcv_daily,
     fetch_history_metrics,
     fetch_history_metrics_by_exchange,
-    fetch_weekly_adtv,
     fetch_weekly_adtv_rub,
     fetch_daily_volume_rub,
 )

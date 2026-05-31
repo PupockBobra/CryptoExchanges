@@ -9,7 +9,6 @@ All public functions return plain Python dicts — no async, so they can be call
 from a ThreadPoolExecutor inside the async ETL loop without blocking the event loop.
 """
 
-import json
 import logging
 import os
 import time
@@ -115,53 +114,6 @@ def fetch_usdrubf_history(from_date: date, till_date: date) -> list[dict]:
         till_date,
         columns="TRADEDATE,WAPRICE,CLOSE",
     )
-
-
-def aggregate_asset_value(
-    asset_secids: list[str],
-    from_date: date,
-    till_date: date,
-) -> dict[date, float]:
-    """
-    Fetch history for every SECID in asset_secids, sum VALUE by date.
-    Returns {trade_date: total_value_rub}.
-    Missing VALUE (None / 0) rows are skipped.
-    """
-    totals: dict[date, float] = {}
-    with _make_session() as session:
-        for secid in asset_secids:
-            url = (
-                f"{_ISS_BASE}/history/engines/futures/markets/forts"
-                f"/securities/{secid}.json"
-            )
-            params = {
-                "from":             from_date.isoformat(),
-                "till":             till_date.isoformat(),
-                "history.columns":  "TRADEDATE,VALUE",
-                "start":            0,
-            }
-            while True:
-                data   = _get(session, url, params)
-                hist   = data["history"]
-                cols   = hist["columns"]
-                page   = hist["data"]
-                cursor = data["history.cursor"]["data"][0]
-                idx, total, pagesize = cursor[0], cursor[1], cursor[2]
-
-                for row in page:
-                    d = dict(zip(cols, row))
-                    val = d.get("VALUE")
-                    if not val:
-                        continue
-                    trade_date = date.fromisoformat(d["TRADEDATE"])
-                    totals[trade_date] = totals.get(trade_date, 0.0) + float(val)
-
-                next_start = idx + pagesize
-                if next_start >= total:
-                    break
-                params = dict(params, start=next_start)
-
-    return totals
 
 
 def _discover_secids_for_assetcode(
