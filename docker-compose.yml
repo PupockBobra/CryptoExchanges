@@ -5,6 +5,15 @@ services:
       POSTGRES_USER: arbi
       POSTGRES_PASSWORD: arbi
       POSTGRES_DB: arbidb
+    # Raise max_locks_per_transaction — TimescaleDB hypertable queries take
+    # one lock per chunk and the default (64) is exhausted once the OHLCV
+    # hypertable accumulates a few hundred chunks (esp. empty future ones).
+    command:
+      - postgres
+      - -c
+      - max_locks_per_transaction=512
+      - -c
+      - shared_buffers=256MB
     ports:
       - "5432:5432"
     volumes:

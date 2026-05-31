@@ -418,12 +418,16 @@ async def fetch_ohlcv_daily(
     limit: int = 365,
 ) -> list[asyncpg.Record]:
     pool = await get_pool()
+    # Bounding ts excludes empty future chunks so the planner doesn't lock
+    # every chunk in the hypertable (otherwise blows past max_locks_per_transaction).
     if exchange:
         return await pool.fetch(
             """
             SELECT ts, symbol, exchange, open, high, low, close, base_volume, quote_volume
             FROM ohlcv_daily
             WHERE symbol = $1 AND exchange = $2
+              AND ts >= '2026-01-01'
+              AND ts <  CURRENT_DATE + INTERVAL '1 day'
             ORDER BY ts ASC
             LIMIT $3
             """,
@@ -444,6 +448,8 @@ async def fetch_ohlcv_daily(
             SUM(quote_volume)         AS quote_volume
         FROM ohlcv_daily
         WHERE symbol = $1
+          AND ts >= '2026-01-01'
+          AND ts <  CURRENT_DATE + INTERVAL '1 day'
         GROUP BY ts
         ORDER BY ts ASC
         LIMIT $2
