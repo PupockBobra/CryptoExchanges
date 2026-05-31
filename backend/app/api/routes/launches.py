@@ -132,29 +132,60 @@ async def _fetch_known_since() -> dict[str, str]:
     return result
 
 
-@router.get("/")
-async def get_launches():
-    """
-    Fetch all non-crypto perpetual swap markets from every tracked exchange.
-    Adds `known_since` field: earliest date we have OHLCV data for this
-    (symbol, exchange) pair. Frontend uses this to detect genuinely new
-    listings vs. instruments with stale/updated metadata from the exchange.
-    """
+_REFRESH_INTERVAL_S = 3600  # refresh cache every hour
+
+_cache: list[dict] = []
+_cache_updated_at: datetime | None = None
+
+
+async def _do_refresh() -> None:
+    global _cache, _cache_updated_at
     exchange_rows, known_since = await asyncio.gather(
         asyncio.gather(*[_fetch_one(ex) for ex in _EXCHANGES]),
         _fetch_known_since(),
     )
-
     all_rows: list[dict] = []
     for batch in exchange_rows:
         for row in batch:
             row["known_since"] = known_since.get(row["base"])
             all_rows.append(row)
-
     all_rows.sort(
         key=lambda r: (r["listed_at"] is None, r["listed_at"] or "", r["base"]),
         reverse=False,
     )
     all_rows.reverse()
+    _cache = all_rows
+    _cache_updated_at = datetime.now(timezone.utc)
+    log.info("launches: cache updated (%d rows)", len(_cache))
 
-    return all_rows
+
+async def launches_refresh_loop() -> None:
+    """Background task started at server startup. Refreshes every hour."""
+    while True:
+        try:
+            await _do_refresh()
+        except Exception as exc:
+            log.warning("launches: refresh failed: %s", exc)
+        await asyncio.sleep(_REFRESH_INTERVAL_S)
+
+
+@router.get("/")
+async def get_launches():
+    """Return cached non-crypto perp data. Cache is refreshed every hour."""
+    if not _cache:
+        # First request before the background loop has run — wait for data
+        await _do_refresh()
+    return {
+        "data":       _cache,
+        "updated_at": _cache_updated_at.isoformat() if _cache_updated_at else None,
+    }
+
+
+@router.post("/refresh")
+async def force_refresh():
+    """Force immediate cache refresh (triggered by frontend Refresh button)."""
+    await _do_refresh()
+    return {
+        "data":       _cache,
+        "updated_at": _cache_updated_at.isoformat() if _cache_updated_at else None,
+    }

@@ -255,20 +255,39 @@ export function Launches() {
   const [loaded,  setLoaded]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const fetchData = async (url: string, method = 'GET') => {
+    const res = await fetch(url, { method })
+    if (!res.ok) throw new Error(res.statusText)
+    const json = await res.json()
+    setRows(json.data)
+    setUpdatedAt(json.updated_at)
+    setLoaded(true)
+  }
+
   const load = async () => {
     setLoading(true)
     setError(null)
     try {
-      const data: LaunchRow[] = await fetch(API).then((r) => {
-        if (!r.ok) throw new Error(r.statusText)
-        return r.json()
-      })
-      setRows(data)
-      setLoaded(true)
+      await fetchData(API)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const refresh = async () => {
+    setRefreshing(true)
+    setError(null)
+    try {
+      await fetchData(API + '/refresh', 'POST')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to refresh')
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -296,15 +315,20 @@ export function Launches() {
         <div style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
           Non-crypto perpetual swaps · sorted by launch date
           {loaded && ` · ${totalInstruments} instruments, ${totalExchanges} exchanges`}
+          {updatedAt && (
+            <span style={{ marginLeft: 10, opacity: 0.6 }}>
+              · updated {new Date(updatedAt).toLocaleTimeString()}
+            </span>
+          )}
         </div>
         <button
           className="btn-secondary"
           style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-          onClick={load}
-          disabled={loading}
+          onClick={refresh}
+          disabled={loading || refreshing}
         >
-          <RefreshCw size={13} className={loading ? 'spin' : ''} />
-          Refresh
+          <RefreshCw size={13} className={refreshing ? 'spin' : ''} />
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 

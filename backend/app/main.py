@@ -10,6 +10,7 @@ from app.config import settings
 from app.db.timescale import init_db, seed_instruments_from_config
 from app.redis_client import get_redis, close_redis
 from app.api.routes import prices, arbitrage, health, instruments, exchanges, history, news, funding, launches
+from app.api.routes.launches import launches_refresh_loop
 from app.backfill.ohlcv import backfill_loop
 from app.backfill.funding import funding_collector_loop
 from app.moex.etl import moex_etl_loop
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_redis_broadcast_loop())
     asyncio.create_task(backfill_loop())
     asyncio.create_task(funding_collector_loop())
+    asyncio.create_task(launches_refresh_loop())
     asyncio.create_task(moex_etl_loop())
     log.info("Backend started")
     yield
