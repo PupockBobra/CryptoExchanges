@@ -1,7 +1,12 @@
-# Crypto Arbitrage Tracker
+# Crypto Tracker
 
-Real-time cross-exchange arbitrage detection across **Binance, OKX, Bybit,
-MEXC, Hyperliquid** + MOEX FORTS turnover data integration.
+Real-time cross-exchange price tracking, daily/weekly turnover analytics,
+funding-rate arbitrage and new-listing surveillance across **Binance, OKX,
+Bybit, MEXC, Hyperliquid** + MOEX FORTS turnover data integration.
+
+The app title (window/tab and FastAPI metadata) is "Crypto Tracker".  The
+package was previously named "arbi-tracker"; the rename is reflected in
+`frontend/package.json`, `frontend/index.html`, `backend/app/main.py`.
 
 ## Architecture
 
@@ -60,11 +65,33 @@ Nginx terminates TLS and reverse-proxies to backend:8000 and frontend:80. See `n
 | `backend/app/api/routes/launches.py` | Hourly cache of non-crypto perp listings |
 | `frontend/src/components/Chart.tsx` | TradingView chart wrapper |
 | `frontend/src/components/SectionHeading.tsx` | Shared section divider |
+| `frontend/src/components/ExchangeSourceBadges.tsx` | "Data from …" strip (Analytics / DailyVolume / Launches) |
 | `frontend/src/utils/format.ts` | daysAgo / timeAgo / fmtVolume helpers |
-| `frontend/src/hooks/useWebSocket.ts` | Reconnecting WebSocket with exponential backoff |
+| `frontend/src/hooks/useWebSocket.ts` | Reconnecting WebSocket with exponential backoff (1s → 30s) |
 | `frontend/src/pages/Analytics.tsx` | Weekly ADTV stacked-bar charts |
 | `frontend/src/pages/DailyVolume.tsx` | Daily volume stacked-bar charts (30d) |
 | `frontend/src/pages/Launches.tsx` | Non-crypto perp futures listings page |
+
+## Exchange list pattern
+
+Two arrays live in `frontend/src/types/index.ts`:
+
+```ts
+EXCHANGES         = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid']
+VOLUME_EXCHANGES  = [...EXCHANGES, 'moex']
+```
+
+Rule:
+- **EXCHANGES** — pages that touch real-time prices, OHLCV history, or
+  exchange connection stats (Realtime Prices, Historical, Exchanges,
+  Instruments).  MOEX is a data-only source (no WebSocket / no fetch_ohlcv),
+  so it does NOT belong here.
+- **VOLUME_EXCHANGES** — Weekly Performance and Daily Volume, where MOEX
+  FORTS turnover is stacked alongside crypto volumes.
+
+When adding a new exchange that streams prices, append it to `EXCHANGES`.
+When adding a new MOEX-style "turnover only" data source, append to
+`VOLUME_EXCHANGES` and update the relevant DB queries.
 
 ## Environment variables
 
@@ -83,7 +110,48 @@ Default spread threshold: **0.3%** — edit `ARBI_THRESHOLD_PCT` in `.env`.
 2. Register it in `backend/worker/main.py` (`COLLECTORS` dict)
 3. Add the ccxt class + perp type to `backend/app/exchanges.py`
 4. Add exchange name to `EXCHANGES` list in `backend/app/config.py`
-5. Add color + label to `frontend/src/types/index.ts` (`EXCHANGE_COLORS`, `EXCHANGES`)
+5. Add color + label to `frontend/src/types/index.ts` (`EXCHANGE_COLORS`, `EXCHANGES`,
+   `EXCHANGE_LABEL` inside `ExchangeSourceBadges.tsx`)
+
+## Futures Launches page
+
+Hourly cached scan of `load_markets()` on every crypto exchange,
+filtered to a hard-coded `NON_CRYPTO_BASES` allow-list (commodities,
+metals, indices, US stocks).  Listing date is read from exchange-specific
+metadata fields: `onboardDate` (Binance), `listTime` (OKX), `launchTime`
+(Bybit), `createTime` (MEXC).  Hyperliquid does not expose a reliable
+listing date — its rows are shown without dates.
+
+Two distinct "new" sections:
+
+1. **New Products** — the EARLIEST listed_at across every exchange is
+   within 7 days AND we have no older OHLCV data for that base.  This is
+   a brand-new contract on the market (e.g. DELL/IBM on OKX).
+2. **New on Exchange** — flat list of (base × exchange) pairs where a
+   single exchange picked up an existing instrument within 7 days
+   (e.g. XAU on MEXC, but Binance has had XAU for a year).
+
+A group can appear in at most one section.
+
+## Known gotchas
+
+- **MEXC daily klines return placeholder future bars** out to year 2063
+  for some symbols (e.g. `UKOIL_USDT`).  The OHLCV backfill in
+  `backend/app/backfill/ohlcv.py` MUST skip bars with `ts_ms > now_ms`
+  AND stop pagination when a page contains any future bar — otherwise
+  tens of thousands of bogus rows hit the hypertable and explode chunk
+  count.
+- **TimescaleDB chunk locking**: queries on `ohlcv_daily` without an
+  upper time bound lock every chunk in the hypertable, hitting
+  `max_locks_per_transaction` (default 64) → "out of shared memory" →
+  500.  All history aggregate queries (`fetch_history_metrics`,
+  `fetch_history_metrics_by_exchange`, `fetch_weekly_adtv_rub`) include
+  `ts < CURRENT_DATE + INTERVAL '1 day'` so the planner prunes to chunks
+  that actually contain data.
+- **FX conversion**: crypto volumes are joined to `moex_fx_rates` via
+  `LEFT JOIN LATERAL` (most recent date ≤ ohlcv day) — NOT a plain
+  `INNER JOIN`, which would drop crypto volume on every weekend/holiday
+  / ISS-outage day.
 ## MOEX Integration (завершено 31.05.2026)
 
 Данные MOEX FORTS встроены в страницу Weekly Performance как отдельный
@@ -132,4 +200,7 @@ Default spread threshold: **0.3%** — edit `ARBI_THRESHOLD_PCT` in `.env`.
 - ✅ ETL с динамическим discovery (нет хардкода серий)
 - ✅ Таблицы moex_fx_rates, moex_daily_value заполнены (116 торг. дней с 01.12.2025)
 - ✅ /weekly-adtv возвращает RUB-данные с MOEX как exchange='moex'
-- ✅ Analytics.tsx: рубли, авто-масштаб B/M, диапазоны на оси X
+- ✅ Analytics.tsx: рубли, авто-масштаб B/M (порог 50B), диапазоны на оси X
+- ✅ DailyVolume.tsx добавлен — за последние 30 дней
+- ✅ MOEX исключён со страниц Realtime Prices / Exchanges / Historical /
+  Instruments через разделение EXCHANGES vs VOLUME_EXCHANGES
