@@ -247,22 +247,6 @@ export function Analytics() {
   // Distinct ordered symbols
   const symbols = Array.from(new Set(allRows.map((r) => r.symbol))).sort()
 
-  // Summary: last full week's combined ADTV across all symbols
-  const lastWeeks = new Map<string, number>()
-  allRows.forEach((r) => {
-    const cur = lastWeeks.get(r.week_start) ?? 0
-    lastWeeks.set(r.week_start, cur + r.adtv)
-  })
-  const sortedWeeks = Array.from(lastWeeks.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  // pick last COMPLETE week (second from last — last may be partial current week)
-  const lastCompleteWeek = sortedWeeks.length >= 2 ? sortedWeeks[sortedWeeks.length - 2] : null
-  const currentWeek      = sortedWeeks.length >= 1 ? sortedWeeks[sortedWeeks.length - 1] : null
-
-  function fmtRub(v: number) {
-    if (v >= 1e9) return `₽${(v / 1e9).toFixed(2)}B`
-    if (v >= 1e6) return `₽${(v / 1e6).toFixed(1)}M`
-    return `₽${v.toFixed(0)}`
-  }
 
   return (
     <div>
@@ -283,59 +267,6 @@ export function Analytics() {
           Refresh
         </button>
       </div>
-
-      {/* ── Summary strip ── */}
-      {!loading && sortedWeeks.length > 0 && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', alignItems: 'center' }}>
-            {lastCompleteWeek && (
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                  Last complete week ADTV
-                  <span style={{ marginLeft: 6, color: 'var(--border)', fontWeight: 400 }}>
-                    (w/c {lastCompleteWeek[0]})
-                  </span>
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
-                  {fmtRub(lastCompleteWeek[1])}
-                </div>
-              </div>
-            )}
-            {currentWeek && (
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                  Current week ADTV (partial)
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
-                  {fmtRub(currentWeek[1])}
-                </div>
-              </div>
-            )}
-            {lastCompleteWeek && currentWeek && (() => {
-              const wow = (currentWeek[1] / lastCompleteWeek[1] - 1) * 100
-              const up = wow >= 0
-              return (
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>WoW trend</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2, color: up ? 'var(--green)' : 'var(--red)' }}>
-                    {up ? '+' : ''}{wow.toFixed(1)}%
-                  </div>
-                </div>
-              )
-            })()}
-            <div style={{ marginLeft: 'auto' }}>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {EXCHANGES.map((ex) => (
-                  <span key={ex} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--muted)' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: EXCHANGE_COLORS[ex], display: 'inline-block' }} />
-                    {ex}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Charts grouped by section ── */}
       {loading ? (
