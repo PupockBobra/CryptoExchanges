@@ -5,10 +5,27 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-arbi}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: arbidb
+    # shared_buffers ≈ 25% RAM budget allocated to Postgres (2 GB → 512 MB).
+    # max_locks_per_transaction must be raised — TimescaleDB hypertable queries
+    # take one lock per chunk and the default (64) is exhausted once the OHLCV
+    # hypertable accumulates a few hundred chunks. See CLAUDE.md "Known gotchas".
+    command:
+      - postgres
+      - -c
+      - max_locks_per_transaction=512
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./backend/app/db/migrations:/docker-entrypoint-initdb.d:ro
     restart: unless-stopped
+    mem_limit: 2g
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U arbi -d arbidb"]
       interval: 10s
@@ -17,9 +34,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "150mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    mem_limit: 200m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -32,11 +51,18 @@ services:
       target: prod
     env_file: .env
     restart: unless-stopped
+    mem_limit: 1g
     depends_on:
       timescaledb:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   collector:
     build:
@@ -44,6 +70,7 @@ services:
       target: prod
     env_file: .env
     restart: unless-stopped
+    mem_limit: 800m
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -59,6 +86,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:?VITE_API_URL must be set in .env}
         VITE_ARBI_THRESHOLD: ${ARBI_THRESHOLD_PCT:-0.3}
     restart: unless-stopped
+    mem_limit: 100m
 
   nginx:
     image: nginx:alpine
@@ -72,6 +100,7 @@ services:
       - backend
       - frontend
     restart: unless-stopped
+    mem_limit: 100m
 
 volumes:
   timescale_data:
