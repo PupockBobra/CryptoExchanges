@@ -1,15 +1,15 @@
-import json
 import logging
 from datetime import datetime, timezone
 
-from app.config import settings
 from app.db.timescale import insert_alert
+from app.config import settings
 from app.models.arbitrage import ArbitrageAlert
 from app.redis_client import get_redis
 
 log = logging.getLogger(__name__)
 
-# In-memory latest ask/bid per (exchange, symbol)
+# In-memory latest ask/bid per (exchange, symbol). Each entry carries its own
+# arrival timestamp so stale entries (from a degraded WS) can be filtered.
 _latest: dict[tuple[str, str], dict] = {}
 
 # Cooldown state: tracks the last-fired alert per (symbol, buy_ex, sell_ex)
@@ -21,17 +21,27 @@ _last_alert: dict[tuple[str, str, str], tuple[float, float]] = {}
 ALERT_COOLDOWN_SECS   = 30
 SPREAD_RETRIGGER_PCT  = 0.05   # 0.05 pp change re-triggers immediately
 
+# Ignore quotes older than this — prevents false signals when one exchange's
+# WebSocket is hung and its last known price drifts away from the live market.
+STALE_TICK_SECS = 10
+
 
 async def on_tick(exchange: str, symbol: str, bid: float, ask: float, last: float):
     """Called by collectors on every price update."""
-    _latest[(exchange, symbol)] = {"bid": bid, "ask": ask, "last": last}
+    _latest[(exchange, symbol)] = {
+        "bid": bid, "ask": ask, "last": last,
+        "ts":  datetime.now(timezone.utc).timestamp(),
+    }
     await _check_arbitrage(symbol)
 
 
 async def _check_arbitrage(symbol: str):
-    exchanges = settings.exchanges
-    ticks = {ex: _latest.get((ex, symbol)) for ex in exchanges}
-    ticks = {ex: t for ex, t in ticks.items() if t}
+    now = datetime.now(timezone.utc).timestamp()
+    ticks = {
+        ex: t
+        for (ex, sym), t in _latest.items()
+        if sym == symbol and (now - t["ts"]) <= STALE_TICK_SECS
+    }
 
     if len(ticks) < 2:
         return
@@ -50,7 +60,6 @@ async def _check_arbitrage(symbol: str):
         return
 
     # ── Deduplication: suppress if same opportunity fired recently ───────────
-    now = datetime.now(timezone.utc).timestamp()
     key = (symbol, best_ask_ex, best_bid_ex)
     last_ts, last_spread = _last_alert.get(key, (0.0, 0.0))
 

@@ -116,7 +116,7 @@ async def _fetch_known_since() -> dict[str, str]:
     XAUT is aliased to XAU because MEXC uses XAUT as the ccxt base while
     our canonical symbols use XAU.
     """
-    _ALIASES = {"XAUT": "XAU", "NGAS": "NATGAS", "UKOIL": "BRN", "USOIL": "WTI"}
+    _ALIASES = {"XAUT": "XAU", "NGAS": "NATGAS", "UKOIL": "BRN", "USOIL": "WTI", "BZ": "BRN"}
     pool = await get_pool()
     rows = await pool.fetch(
         "SELECT SPLIT_PART(symbol, '/', 1) AS base, MIN(ts::date)::text AS first_date "

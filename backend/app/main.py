@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -45,6 +44,7 @@ async def _redis_broadcast_loop():
     if the Redis connection drops.
     """
     while True:
+        pubsub = None
         try:
             r = await get_redis()
             pubsub = r.pubsub()
@@ -63,25 +63,35 @@ async def _redis_broadcast_loop():
                     if not clients:
                         continue
 
-                    dead: set[WebSocket] = set()
-                    # Snapshot the set to avoid "changed size during iteration"
-                    # if a WS connects/disconnects concurrently.
-                    for ws in list(clients):
-                        try:
-                            await ws.send_text(data)
-                        except Exception:
-                            dead.add(ws)
-                    for ws in dead:
-                        clients.discard(ws)
+                    # Send to all clients concurrently — a single slow client
+                    # must not block the rest of the fan-out.
+                    snapshot = list(clients)
+                    results  = await asyncio.gather(
+                        *(ws.send_text(data) for ws in snapshot),
+                        return_exceptions=True,
+                    )
+                    for ws, res in zip(snapshot, results):
+                        if isinstance(res, Exception):
+                            clients.discard(ws)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     log.error("Broadcast loop inner error: %s", e, exc_info=True)
 
         except asyncio.CancelledError:
+            if pubsub is not None:
+                try:
+                    await pubsub.aclose()
+                except Exception:
+                    pass
             raise
         except Exception as e:
             log.warning("Broadcast loop disconnected (%s), reconnecting in 2 s…", e)
+            if pubsub is not None:
+                try:
+                    await pubsub.aclose()
+                except Exception:
+                    pass
             await asyncio.sleep(2)
 
 
@@ -114,5 +124,9 @@ async def websocket_endpoint(websocket: WebSocket, channel: str):
         while True:
             await websocket.receive_text()   # keep-alive ping/pong
     except WebSocketDisconnect:
-        _ws_clients.get(channel, set()).discard(websocket)
+        clients = _ws_clients.get(channel)
+        if clients is not None:
+            clients.discard(websocket)
+            if not clients:
+                _ws_clients.pop(channel, None)
         log.info("WS disconnected: channel=%s", channel)

@@ -16,15 +16,13 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 
-import ccxt.async_support as ccxt_async
-
 from app.config import settings
 from app.db.timescale import (
     fetch_instruments,
     upsert_ohlcv_daily,
     get_ohlcv_daily_latest_ts,
 )
-from app.exchanges import EXCHANGE_CLS, PERP_MARKET_TYPE
+from app.exchanges import make_exchange
 
 log = logging.getLogger(__name__)
 
@@ -34,16 +32,6 @@ REFRESH_INTERVAL = 6 * 3600   # re-run every 6 hours to refresh today's partial 
 
 # Global lock prevents multiple concurrent backfill runs from fighting over DB locks
 _backfill_running = asyncio.Lock()
-
-
-def _make_exchange(exchange_id: str, is_perp: bool) -> ccxt_async.Exchange:
-    cls = EXCHANGE_CLS[exchange_id]
-    market_type = PERP_MARKET_TYPE[exchange_id] if is_perp else "spot"
-    return cls({
-        "enableRateLimit": True,
-        "options": {"defaultType": market_type},
-        "timeout": 20000,   # 20 s per request; default 10 s is too short for Bybit/OKX
-    })
 
 
 async def _backfill_one(
@@ -62,7 +50,8 @@ async def _backfill_one(
     instrument fetches).
     """
     is_perp = ":" in canonical
-    exchange = _make_exchange(exchange_id, is_perp)
+    market_type = None if is_perp else "spot"
+    exchange = make_exchange(exchange_id, market_type=market_type)
     stored = 0
     try:
         # MEXC swap markets always need load_markets() to retrieve contractSize.

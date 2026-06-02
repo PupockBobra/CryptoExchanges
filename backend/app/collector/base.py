@@ -77,6 +77,15 @@ class BaseCollector(ABC):
                     env_aliases.get(sym, {}).get(self.exchange_id)
                     or sym
                 )
+            existing = result.get(exchange_sym)
+            if existing is not None and existing != sym:
+                # Two canonical symbols resolve to the same exchange symbol —
+                # downstream tick dispatch can only route to one of them.
+                log.warning(
+                    "[%s] alias collision: %r and %r both map to %r — keeping %r",
+                    self.exchange_id, existing, sym, exchange_sym, existing,
+                )
+                continue
             result[exchange_sym] = sym
         return result
 

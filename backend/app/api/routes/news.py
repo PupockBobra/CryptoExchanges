@@ -2,6 +2,7 @@
 CoinDesk news feed — fetches RSS, caches in Redis for 15 minutes.
 """
 import hashlib
+import html
 import json
 import logging
 import re
@@ -29,7 +30,9 @@ _NS = {
 
 
 def _strip_html(text: str) -> str:
-    return re.sub(r"<[^>]+>", "", text or "").strip()
+    # Decode entities (&amp;, &#8217;, …) after tag removal so the cleaned
+    # text reads naturally instead of leaking raw HTML escapes to the UI.
+    return html.unescape(re.sub(r"<[^>]+>", "", text or "")).strip()
 
 
 def _parse_rss(xml_text: str) -> list[dict]:
@@ -40,7 +43,7 @@ def _parse_rss(xml_text: str) -> list[dict]:
 
     articles: list[dict] = []
     for item in channel.findall("item"):
-        title = (item.findtext("title") or "").strip()
+        title = html.unescape((item.findtext("title") or "").strip())
         url   = (item.findtext("link")  or "").strip()
         if not title or not url:
             continue

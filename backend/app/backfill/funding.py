@@ -30,7 +30,7 @@ from app.db.timescale import (
     upsert_funding_rates,
     get_funding_rate_latest_ts,
 )
-from app.exchanges import EXCHANGE_CLS, PERP_MARKET_TYPE, FUNDING_INTERVAL_HOURS
+from app.exchanges import EXCHANGE_CLS, FUNDING_INTERVAL_HOURS, make_exchange
 from app.redis_client import get_redis
 
 log = logging.getLogger(__name__)
@@ -45,15 +45,6 @@ _backfill_lock = asyncio.Lock()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _make_exchange(exchange_id: str) -> ccxt_async.Exchange:
-    cls = EXCHANGE_CLS[exchange_id]
-    return cls({
-        "enableRateLimit": True,
-        "options": {"defaultType": PERP_MARKET_TYPE[exchange_id]},
-        "timeout": 20_000,
-    })
-
 
 def _parse_ts(ms) -> datetime | None:
     if ms is None:
@@ -74,7 +65,7 @@ async def _backfill_symbol(
 ) -> int:
     """Paginate through funding_rate_history and upsert to DB. Returns rows stored."""
     ih = FUNDING_INTERVAL_HOURS.get(exchange_id, 8)
-    exchange = _make_exchange(exchange_id)
+    exchange = make_exchange(exchange_id)
     rows: list[tuple] = []
     current_since = since_ms
 
@@ -184,7 +175,7 @@ async def _poll_live(work: list[tuple[str, str, str]]) -> None:
 
     for ex_id, sym_pairs in by_exchange.items():
         ih = FUNDING_INTERVAL_HOURS.get(ex_id, 8)
-        exchange = _make_exchange(ex_id)
+        exchange = make_exchange(ex_id)
         try:
             for ex_sym, canonical in sym_pairs:
                 # 1 ── Incremental settled-rate update ────────────────────────

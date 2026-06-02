@@ -265,10 +265,6 @@ async def fetch_ohlcv(symbol: str, exchange: str, interval: str = "1 minute", li
     if rows:
         return rows
     # Fallback: aggregate directly from price_ticks (first minutes after cold start).
-    # The lookback is (limit × interval) — compute it in Python as a timedelta
-    # so the SQL doesn't need to multiply an interval by an integer (which is
-    # version-dependent in PostgreSQL).
-    lookback = td * limit
     return await pool.fetch(
         """
         SELECT time_bucket($1, ts) AS bucket,
@@ -420,39 +416,49 @@ async def fetch_ohlcv_daily(
     pool = await get_pool()
     # Bounding ts excludes empty future chunks so the planner doesn't lock
     # every chunk in the hypertable (otherwise blows past max_locks_per_transaction).
+    #
+    # LIMIT must apply to the MOST RECENT N rows, not the oldest. We take
+    # them with ORDER BY ts DESC inside a subquery and re-sort ASC for the
+    # frontend (which iterates chronologically).
     if exchange:
         return await pool.fetch(
             """
-            SELECT ts, symbol, exchange, open, high, low, close, base_volume, quote_volume
-            FROM ohlcv_daily
-            WHERE symbol = $1 AND exchange = $2
-              AND ts >= '2026-01-01'
-              AND ts <  CURRENT_DATE + INTERVAL '1 day'
+            SELECT * FROM (
+                SELECT ts, symbol, exchange, open, high, low, close, base_volume, quote_volume
+                FROM ohlcv_daily
+                WHERE symbol = $1 AND exchange = $2
+                  AND ts >= '2026-01-01'
+                  AND ts <  CURRENT_DATE + INTERVAL '1 day'
+                ORDER BY ts DESC
+                LIMIT $3
+            ) recent
             ORDER BY ts ASC
-            LIMIT $3
             """,
             symbol, exchange, limit,
         )
     # Aggregate across exchanges: sum volumes, OHLC from first/max/min/last exchange data
     return await pool.fetch(
         """
-        SELECT
-            ts,
-            $1::text                  AS symbol,
-            'aggregate'::text         AS exchange,
-            AVG(open)                 AS open,
-            MAX(high)                 AS high,
-            MIN(low)                  AS low,
-            AVG(close)                AS close,
-            SUM(base_volume)          AS base_volume,
-            SUM(quote_volume)         AS quote_volume
-        FROM ohlcv_daily
-        WHERE symbol = $1
-          AND ts >= '2026-01-01'
-          AND ts <  CURRENT_DATE + INTERVAL '1 day'
-        GROUP BY ts
+        SELECT * FROM (
+            SELECT
+                ts,
+                $1::text                  AS symbol,
+                'aggregate'::text         AS exchange,
+                AVG(open)                 AS open,
+                MAX(high)                 AS high,
+                MIN(low)                  AS low,
+                AVG(close)                AS close,
+                SUM(base_volume)          AS base_volume,
+                SUM(quote_volume)         AS quote_volume
+            FROM ohlcv_daily
+            WHERE symbol = $1
+              AND ts >= '2026-01-01'
+              AND ts <  CURRENT_DATE + INTERVAL '1 day'
+            GROUP BY ts
+            ORDER BY ts DESC
+            LIMIT $2
+        ) recent
         ORDER BY ts ASC
-        LIMIT $2
         """,
         symbol, limit,
     )
