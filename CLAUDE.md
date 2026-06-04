@@ -152,6 +152,31 @@ A group can appear in at most one section.
   `LEFT JOIN LATERAL` (most recent date ≤ ohlcv day) — NOT a plain
   `INNER JOIN`, which would drop crypto volume on every weekend/holiday
   / ISS-outage day.
+- **nginx upstream DNS cache**: nginx resolves upstream container IPs
+  once at startup and caches them. After `docker compose up -d backend`
+  the backend container gets a new IP but nginx keeps hitting the old one
+  → 502. Fixed in `nginx/http-only.conf` via `resolver 127.0.0.11
+  valid=10s` + `set $backend_upstream "backend:8000"` so nginx
+  re-resolves every 10 s. Always restart nginx after recreating any
+  upstream container: `docker compose -f docker-compose.prod.yml restart
+  nginx`.
+- **MEXC WebSocket requires protobuf**: ccxt ≥ 4.4 switched MEXC WS
+  messages to protobuf encoding. `protobuf==5.29.5` must be in
+  `backend/requirements.txt` — without it the collector logs
+  `NotSupported: mexc requires protobuf` on every tick and MEXC
+  real-time prices are silently dropped.
+- **Hyperliquid aiohttp "Unclosed session" warnings**: ccxt hyperliquid
+  creates lazy internal aiohttp sessions that emit `__del__` warnings
+  when GC'd, even though FDs are released correctly. Suppressed via a
+  `logging.Filter` on `ccxt.base.exchange` and `asyncio` loggers in
+  `backend/app/main.py` (`_CcxtNoiseFilter`). Not a real leak (verified
+  via `/proc/1/fd` count).
+- **WTI symbol names differ per exchange**: canonical is
+  `WTI/USDT:USDT`; each exchange uses a different ccxt symbol. Aliases
+  stored in `instruments.aliases` JSONB column:
+  `binance/okx/bybit → CL/USDT:USDT`, `mexc → USOIL/USDT:USDT`,
+  `hyperliquid → CASH-WTI/USDT0:USDT0`. WTI is NOT on MOEX FORTS
+  (no CL contract there).
 ## MOEX Integration (завершено 31.05.2026)
 
 Данные MOEX FORTS встроены в страницу Weekly Performance как отдельный
@@ -180,11 +205,12 @@ A group can appear in at most one section.
 - Подневно: `quote_volume_USDT × moex_fx_rates.usdrub` за тот же день
 - USDRUBF — вечный фьючерс (SECID=USDRUBF), курс forward-filled на выходные
 
-### Фронтенд (Analytics.tsx)
-- Ось Y: авто-масштаб — если max ADTV < 30B → миллионы (₽M), иначе миллиарды (₽B)
+### Фронтенд (Analytics.tsx / DailyVolume.tsx)
+- Ось Y: всегда миллиарды (₽B), 1 знак после запятой. Авто-масштаб в миллионы убран.
+- `automargin: true` + `standoff: 14` на yaxis предотвращают наложение заголовка `Volume (₽B)` на числа тиков.
 - MOEX сегмент скрыт для секций `US Market` и `Spot Crypto`
 - X-ось: диапазон недели `May 18 – May 24` вместо одной даты
-- Hover: `₽83.2B` / `₽9800.1M`
+- Hover: `₽83.2B`
 
 ### Ключевые файлы
 | Путь | Назначение |
@@ -196,11 +222,13 @@ A group can appear in at most one section.
 | `backend/app/api/routes/history.py` | GET /api/history/weekly-adtv |
 | `frontend/src/pages/Analytics.tsx` | Stacked-bar диаграммы |
 
-### Статус (на 31.05.2026)
+### Статус (на 04.06.2026)
 - ✅ ETL с динамическим discovery (нет хардкода серий)
-- ✅ Таблицы moex_fx_rates, moex_daily_value заполнены (116 торг. дней с 01.12.2025)
+- ✅ Таблицы moex_fx_rates, moex_daily_value заполнены (117 торг. дней с 01.12.2025)
 - ✅ /weekly-adtv возвращает RUB-данные с MOEX как exchange='moex'
-- ✅ Analytics.tsx: рубли, авто-масштаб B/M (порог 50B), диапазоны на оси X
+- ✅ Analytics.tsx: рубли, всегда ₽B (1 знак), диапазоны на оси X
 - ✅ DailyVolume.tsx добавлен — за последние 30 дней
 - ✅ MOEX исключён со страниц Realtime Prices / Exchanges / Historical /
   Instruments через разделение EXCHANGES vs VOLUME_EXCHANGES
+- ✅ ETL интервал снижен с 24h до 6h (`asyncio.sleep(21_600)`)
+- ✅ WTI/USDT:USDT добавлен как инструмент (MOEX FORTS WTI не существует)
