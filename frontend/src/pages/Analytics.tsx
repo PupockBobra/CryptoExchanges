@@ -17,7 +17,7 @@ import { VOLUME_EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, for
 import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
-import { exportWeeklyAdtv } from '../utils/excel'
+import { exportWeeklyCsv } from '../utils/exportCsv'
 
 // Sections where MOEX has no data — exclude from traces entirely
 const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
@@ -193,17 +193,21 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
     return () => { if (el) Plotly.purge(el) }
   }, [])
 
-  const filename = `weekly-adtv-${symbol.replace(/\//g, '-').replace(/:/, '-')}.xlsx`
+  const slug = symbol.replace(/\//g, '-').replace(/:/, '-')
 
   return (
     <div className="card analytics-card">
-      <div style={{ position: 'relative' }}>
-        {rows.length > 0 && (
+      <div ref={divRef} style={{ width: '100%', height: 360 }} />
+      {!rows.length && (
+        <p className="empty" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          No data
+        </p>
+      )}
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 4 }}>
           <button
-            title="Export to Excel"
-            onClick={() => exportWeeklyAdtv(rows, [symbol], filename)}
+            onClick={() => exportWeeklyCsv(rows, symbol, `weekly-adtv-${slug}.csv`)}
             style={{
-              position: 'absolute', bottom: 128, right: 20, zIndex: 10,
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: 'var(--muted)', padding: '3px 6px', borderRadius: 4,
               display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
@@ -212,16 +216,10 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
           >
             <Download size={12} />
-            export to excel
+            export to csv
           </button>
-        )}
-        <div ref={divRef} style={{ width: '100%', height: 360 }} />
-        {!rows.length && (
-          <p className="empty" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            No data
-          </p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
