@@ -175,8 +175,8 @@ A group can appear in at most one section.
   `WTI/USDT:USDT`; each exchange uses a different ccxt symbol. Aliases
   stored in `instruments.aliases` JSONB column:
   `binance/okx/bybit → CL/USDT:USDT`, `mexc → USOIL/USDT:USDT`,
-  `hyperliquid → CASH-WTI/USDT0:USDT0`. WTI is NOT on MOEX FORTS
-  (no CL contract there).
+  `hyperliquid → XYZ-CL/USDC:USDC` (launched 2026-01-06, id 110029).
+  WTI is NOT on MOEX FORTS (no CL contract there).
 ## MOEX Integration (завершено 31.05.2026)
 
 Данные MOEX FORTS встроены в страницу Weekly Performance как отдельный
