@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Plotly from 'plotly.js-dist-min'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Download } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { VOLUME_EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
+import { exportDailyVolume } from '../utils/excel'
 
 const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
@@ -186,6 +187,15 @@ export function DailyVolume() {
         >
           <RefreshCw size={13} className={loading ? 'spin' : ''} />
           Refresh
+        </button>
+        <button
+          className="btn-secondary"
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          onClick={() => exportDailyVolume(allRows, symbols, 'daily-volume.xlsx')}
+          disabled={loading || allRows.length === 0}
+        >
+          <Download size={13} />
+          Export Excel
         </button>
       </div>
 
