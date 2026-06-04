@@ -23,6 +23,7 @@ from app.db.timescale import (
     fetch_history_metrics_by_exchange,
     fetch_weekly_adtv_rub,
     fetch_daily_volume_rub,
+    fetch_tradfi_daily_volume,
 )
 
 log = logging.getLogger(__name__)
@@ -108,6 +109,25 @@ async def get_daily_volume():
     Crypto: quote_volume × USDRUBF rate. MOEX: value_rub.
     """
     rows = await fetch_daily_volume_rub()
+    return [
+        {
+            "date":       str(r["date"]),
+            "date_label": r["date_label"].strip(),
+            "symbol":     r["symbol"],
+            "exchange":   r["exchange"],
+            "volume_rub": float(r["volume_rub"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/tradfi-volume")
+async def get_tradfi_volume():
+    """
+    Daily trading volume in RUB for tradfi perps only (Commodities, Metals, US Market).
+    Per symbol × exchange, last 30 days. Used by TradFi Market Share page.
+    """
+    rows = await fetch_tradfi_daily_volume()
     return [
         {
             "date":       str(r["date"]),

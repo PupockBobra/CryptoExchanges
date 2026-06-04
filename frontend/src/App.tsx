@@ -4,9 +4,10 @@ import { Dashboard }   from './pages/Dashboard'
 import { Instruments } from './pages/Instruments'
 import { Exchanges }   from './pages/Exchanges'
 import { History }     from './pages/History'
-import { Analytics }    from './pages/Analytics'
-import { DailyVolume } from './pages/DailyVolume'
-import { Launches }    from './pages/Launches'
+import { Analytics }          from './pages/Analytics'
+import { DailyVolume }        from './pages/DailyVolume'
+import { TradFiMarketShare }  from './pages/TradFiMarketShare'
+import { Launches }           from './pages/Launches'
 import { News }        from './pages/News'
 import { Funding }     from './pages/Funding'
 import type { Page, Theme } from './components/Header'
@@ -14,7 +15,7 @@ import type { Page, Theme } from './components/Header'
 const DEFAULT_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XAU/USDT:USDT', 'XAG/USDT:USDT']
 
 export default function App() {
-  const [page,           setPage]    = useState<Page>('dashboard')
+  const [page,           setPage]    = useState<Page>('analytics')
   const [symbols,        setSymbols] = useState<string[]>(DEFAULT_SYMBOLS)
   const [selectedSymbol, setSymbol]  = useState(DEFAULT_SYMBOLS[0])
   const [theme, setTheme] = useState<Theme>(
@@ -67,9 +68,10 @@ export default function App() {
           {page === 'instruments' && <Instruments />}
           {page === 'exchanges'   && <Exchanges />}
           {page === 'history'     && <History />}
-          {page === 'analytics'     && <Analytics />}
-          {page === 'daily-volume'  && <DailyVolume />}
-          {page === 'launches'      && <Launches />}
+          {page === 'analytics'           && <Analytics />}
+          {page === 'daily-volume'        && <DailyVolume />}
+          {page === 'tradfi-market-share' && <TradFiMarketShare />}
+          {page === 'launches'            && <Launches />}
           {page === 'news'        && <News />}
           {page === 'funding'     && <Funding />}
         </div>

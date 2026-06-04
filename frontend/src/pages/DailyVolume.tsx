@@ -213,6 +213,25 @@ export function DailyVolume() {
         exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']}
       />
 
+      <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+        <div style={{ padding: '12px 20px 12px 16px', borderRight: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
+            Страница показывает
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+            Дневной объём торгов за последние 30 дней по каждому инструменту в разбивке по биржам. В отличие от Weekly Performance — без усреднения.
+          </div>
+        </div>
+        <div style={{ padding: '12px 16px 12px 20px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
+            Единица измерения
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+            ₽B (миллиарды рублей).
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <p className="empty">Loading daily volume data…</p>
       ) : symbols.length === 0 ? (

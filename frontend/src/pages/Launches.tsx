@@ -416,6 +416,26 @@ export function Launches() {
 
       <ExchangeSourceBadges exchanges={['binance', 'okx', 'bybit', 'mexc']} />
 
+      <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+        <div style={{ padding: '12px 20px 12px 16px', borderRight: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
+            Страница показывает
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+            Новые перп-контракты на традиционные активы (товары, металлы, акции, индексы) на крупнейших криптобиржах.
+          </div>
+        </div>
+        <div style={{ padding: '12px 16px 12px 20px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
+            Разделы
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6 }}>
+            <b>New products</b> — инструмент появился на рынке впервые (самая ранняя дата листинга среди всех бирж не старше 7 дней).<br />
+            <b>New on exchange</b> — инструмент существует давно, но конкретная биржа добавила его недавно (в течение 7 дней).
+          </div>
+        </div>
+      </div>
+
       {loading && <p className="empty">Scanning exchanges…</p>}
       {error   && <p className="empty" style={{ color: 'var(--red)' }}>{error}</p>}
 

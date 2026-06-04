@@ -96,6 +96,32 @@ export function classifySymbol(sym: string): SymbolSection {
   return 'Spot Crypto'
 }
 
+export const INSTRUMENT_COLORS: Record<string, string> = {
+  // Energy
+  BRN:    '#c47a35',
+  WTI:    '#8b4513',
+  USOIL:  '#8b4513',
+  UKOIL:  '#c47a35',
+  BRENT:  '#c47a35',
+  NATGAS: '#4682b4',
+  NGAS:   '#4682b4',
+  // Precious metals
+  XAU:    '#ffd700',
+  XAG:    '#adb5bd',
+  XPT:    '#a8d8ea',
+  XPD:    '#9b7bb5',
+  // US Market
+  NVDA:   '#76b900',
+  QQQ:    '#3f51b5',
+  SPY:    '#003f87',
+  AAPL:   '#888888',
+  TSLA:   '#cc0000',
+  AMZN:   '#ff9900',
+  MSFT:   '#00a4ef',
+  GOOGL:  '#4285f4',
+  META:   '#0668e1',
+}
+
 /** BTC/USDT → BTC/USDT   XAU/USDT:USDT → XAU/USDT PERP */
 export function formatSymbol(sym: string): string {
   if (!sym.includes(':')) return sym

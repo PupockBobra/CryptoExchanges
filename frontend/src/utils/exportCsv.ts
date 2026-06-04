@@ -1,6 +1,59 @@
 interface WeeklyRow { week_start: string; symbol: string; exchange: string; adtv: number }
 interface DailyRow  { date: string;       symbol: string; exchange: string; volume_rub: number }
 
+function dateLabel(d: string) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+}
+
+function buildCsv(dates: string[], columns: string[], lookup: Map<string, Map<string, number>>, title: string): string {
+  const header = ['Date', ...columns, 'Total (RUB)'].join(',')
+  const rows = dates.map(d => {
+    const byCol = lookup.get(d) ?? new Map<string, number>()
+    const vals  = columns.map(c => byCol.get(c) ?? 0)
+    const total = vals.reduce((a, b) => a + b, 0)
+    return [dateLabel(d), ...vals.map(v => Math.round(v)), Math.round(total)].join(',')
+  })
+  return `# ${title}\n${[header, ...rows].join('\n')}`
+}
+
+export function exportByExchange(rows: DailyRow[], filename: string) {
+  const exchanges = Array.from(new Set(rows.map(r => r.exchange))).sort()
+  const dates     = Array.from(new Set(rows.map(r => r.date))).sort()
+  const lookup    = new Map<string, Map<string, number>>()
+  for (const r of rows) {
+    if (!lookup.has(r.date)) lookup.set(r.date, new Map())
+    const m = lookup.get(r.date)!
+    m.set(r.exchange, (m.get(r.exchange) ?? 0) + r.volume_rub)
+  }
+  download(buildCsv(dates, exchanges, lookup, 'Volume by Exchange (RUB)'), filename)
+}
+
+export function exportByBase(rows: DailyRow[], filename: string) {
+  const bases  = Array.from(new Set(rows.map(r => r.symbol.split('/')[0]))).sort()
+  const dates  = Array.from(new Set(rows.map(r => r.date))).sort()
+  const lookup = new Map<string, Map<string, number>>()
+  for (const r of rows) {
+    const base = r.symbol.split('/')[0]
+    if (!lookup.has(r.date)) lookup.set(r.date, new Map())
+    const m = lookup.get(r.date)!
+    m.set(base, (m.get(base) ?? 0) + r.volume_rub)
+  }
+  download(buildCsv(dates, bases, lookup, 'Volume by Instrument (RUB)'), filename)
+}
+
+export function exportByGroup(rows: DailyRow[], getGroup: (sym: string) => string, filename: string) {
+  const groups = ['Commodities', 'US Market', 'Cryptocurrencies']
+  const dates  = Array.from(new Set(rows.map(r => r.date))).sort()
+  const lookup = new Map<string, Map<string, number>>()
+  for (const r of rows) {
+    const group = getGroup(r.symbol)
+    if (!lookup.has(r.date)) lookup.set(r.date, new Map())
+    const m = lookup.get(r.date)!
+    m.set(group, (m.get(group) ?? 0) + r.volume_rub)
+  }
+  download(buildCsv(dates, groups, lookup, 'Volume by Asset Group (RUB)'), filename)
+}
+
 function download(content: string, filename: string) {
   const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
