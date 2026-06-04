@@ -97,7 +97,8 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
       showgrid:  false,
     },
     yaxis: {
-      title: { text: 'ADTV (₽B)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
+      title: { text: 'ADTV (₽B)', font: { color: t.text, size: 11, family: FONT_FAMILY }, standoff: 14 },
+      automargin: true,
       tickfont:   { color: t.text, size: 10, family: FONT_FAMILY },
       gridcolor:  t.grid,
       linecolor:  t.grid,
@@ -145,11 +146,8 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
     const weekStarts = Array.from(new Set(rows.map((r) => r.week_start))).sort()
     const labels = weekStarts.map(weekRangeLabel)
 
-    // Auto-scale: if peak weekly ADTV across all exchanges < 30B → use millions
-    const maxAdtv = Math.max(...rows.map((r) => r.adtv))
-    const useMillions = maxAdtv < 50e9
-    const scale  = useMillions ? 1e6 : 1e9
-    const suffix = useMillions ? 'M' : 'B'
+    const scale  = 1e9
+    const suffix = 'B'
 
     // Exchanges to include: omit moex for sections that have no MOEX data
     const visibleExchanges = MOEX_SECTIONS.includes(section)
@@ -181,7 +179,7 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
     const layout = buildLayout(formatSymbol(symbol), theme)
     layout.yaxis = {
       ...layout.yaxis,
-      title: { text: `ADTV (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY } },
+      title: { text: `ADTV (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY }, standoff: 14 },
       ticksuffix: suffix,
     }
 

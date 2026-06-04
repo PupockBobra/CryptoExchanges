@@ -1,7 +1,7 @@
 """
 MOEX FORTS ETL job.
 
-Runs at startup and every 24 h.  For each pass:
+Runs at startup and every 6 h.  For each pass:
   1. Refresh USDRUBF daily rates → moex_fx_rates   (forward-filled for weekends)
   2. Refresh per-asset daily VALUE sums → moex_daily_value
      (fetches all active SECID series, sums VALUE by date)
@@ -43,10 +43,10 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="moex-etl")
 # ── Public entry points ───────────────────────────────────────────────────────
 
 async def moex_etl_loop() -> None:
-    """Background task: run ETL once at startup then every 24 h."""
+    """Background task: run ETL once at startup then every 6 h."""
     while True:
         await run_moex_etl()
-        await asyncio.sleep(86_400)
+        await asyncio.sleep(21_600)
 
 
 async def run_moex_etl() -> None:

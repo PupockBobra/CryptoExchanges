@@ -17,6 +17,30 @@ from app.moex.etl import moex_etl_loop
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger(__name__)
 
+
+class _CcxtNoiseFilter(logging.Filter):
+    """Drop cosmetic ccxt/aiohttp warnings about lazily-created HTTP sessions.
+
+    Why: ccxt hyperliquid creates internal aiohttp sessions on-demand that
+    aren't tracked by the main exchange.close() call. Python GC reclaims the
+    sockets correctly (verified: backend FD count stays at ~13), but the
+    __del__ method spams 'Unclosed client session' / 'Unclosed connector'
+    warnings on every backfill pass, drowning useful logs.
+    """
+    _NOISE = (
+        "requires to release all resources",
+        "Unclosed client session",
+        "Unclosed connector",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(needle in msg for needle in self._NOISE)
+
+
+for _name in ("ccxt.base.exchange", "asyncio"):
+    logging.getLogger(_name).addFilter(_CcxtNoiseFilter())
+
 # Connected WebSocket clients keyed by exact channel name
 _ws_clients: dict[str, set[WebSocket]] = {}
 

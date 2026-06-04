@@ -77,7 +77,7 @@ export const EXCHANGE_COLORS: Record<Exchange, string> = {
 // ── Symbol sections ───────────────────────────────────────────────────────────
 
 export const SYMBOL_SECTIONS = [
-  { label: 'Commodities',    bases: ['BRN', 'NATGAS', 'NGAS', 'UKOIL', 'BRENT'] },
+  { label: 'Commodities',    bases: ['BRN', 'WTI', 'USOIL', 'NATGAS', 'NGAS', 'UKOIL', 'BRENT'] },
   { label: 'Precious Metals', bases: ['XAU', 'XAG', 'XPT', 'XPD'] },
   { label: 'US Market',      bases: ['NVDA', 'QQQ', 'SPY', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOGL', 'META'] },
   { label: 'Spot Crypto',    bases: [] as string[] },   // catch-all

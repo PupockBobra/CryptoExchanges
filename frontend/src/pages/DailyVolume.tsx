@@ -52,7 +52,8 @@ function buildLayout(title: string, theme: 'dark' | 'light'): Partial<Plotly.Lay
       gridcolor: t.grid, linecolor: t.grid, showgrid: false,
     },
     yaxis: {
-      title: { text: 'Volume (₽B)', font: { color: t.text, size: 11, family: FONT_FAMILY } },
+      title: { text: 'Volume (₽B)', font: { color: t.text, size: 11, family: FONT_FAMILY }, standoff: 14 },
+      automargin: true,
       tickfont: { color: t.text, size: 10, family: FONT_FAMILY },
       gridcolor: t.grid, linecolor: t.grid,
       tickprefix: '₽', tickformat: ',.1f', ticksuffix: 'B', hoverformat: ',.1f',
@@ -91,10 +92,8 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     })
 
-    const maxVol = Math.max(...rows.map(r => r.volume_rub))
-    const useMillions = maxVol < 50e9
-    const scale  = useMillions ? 1e6 : 1e9
-    const suffix = useMillions ? 'M' : 'B'
+    const scale  = 1e9
+    const suffix = 'B'
 
     const visibleExchanges = MOEX_SECTIONS.includes(section)
       ? VOLUME_EXCHANGES.filter(ex => ex !== 'moex')
@@ -116,7 +115,7 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
     const layout = buildLayout(formatSymbol(symbol), theme)
     layout.yaxis = {
       ...layout.yaxis,
-      title: { text: `Volume (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY } },
+      title: { text: `Volume (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY }, standoff: 14 },
       ticksuffix: suffix,
     }
 
