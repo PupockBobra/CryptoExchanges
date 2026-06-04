@@ -131,29 +131,32 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
   const filename = `daily-volume-${symbol.replace(/\//g, '-').replace(/:/, '-')}.xlsx`
 
   return (
-    <div className="card analytics-card" style={{ position: 'relative' }}>
-      {rows.length > 0 && (
-        <button
-          title="Export to Excel"
-          onClick={() => exportDailyVolume(rows, [symbol], filename)}
-          style={{
-            position: 'absolute', top: 8, right: 8, zIndex: 10,
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            color: 'var(--muted)', padding: 4, borderRadius: 4,
-            display: 'flex', alignItems: 'center',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
-        >
-          <Download size={14} />
-        </button>
-      )}
-      <div ref={divRef} style={{ width: '100%', height: 360 }} />
-      {!rows.length && (
-        <p className="empty" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          No data
-        </p>
-      )}
+    <div className="card analytics-card">
+      <div style={{ position: 'relative' }}>
+        {rows.length > 0 && (
+          <button
+            title="Export to Excel"
+            onClick={() => exportDailyVolume(rows, [symbol], filename)}
+            style={{
+              position: 'absolute', bottom: 128, right: 20, zIndex: 10,
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--muted)', padding: '3px 6px', borderRadius: 4,
+              display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--fg)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+          >
+            <Download size={12} />
+            export to excel
+          </button>
+        )}
+        <div ref={divRef} style={{ width: '100%', height: 360 }} />
+        {!rows.length && (
+          <p className="empty" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            No data
+          </p>
+        )}
+      </div>
     </div>
   )
 }
