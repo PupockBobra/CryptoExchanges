@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from app.db.timescale import fetch_ohlcv, fetch_latest_ticks, fetch_instruments
 from app.config import settings
 
@@ -18,7 +18,10 @@ async def ohlcv(
     interval: str = Query("1 minute"),
     limit:    int = Query(200, ge=1, le=1000),
 ):
-    rows = await fetch_ohlcv(symbol, exchange, interval, limit)
+    try:
+        rows = await fetch_ohlcv(symbol, exchange, interval, limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return [dict(r) for r in rows]
 
 

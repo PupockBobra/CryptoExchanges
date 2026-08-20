@@ -41,7 +41,9 @@ NON_CRYPTO_BASES: frozenset[str] = frozenset({
     "HD", "PFE", "MRNA", "JNJ", "UNH", "CVX", "XOM", "BA", "GE", "F", "GM",
     "NIO", "BABA", "JD", "PDD", "SHOP", "SQ", "ROKU", "ZM", "CRWD", "DDOG",
     "SNOW", "AFRM", "SOFI", "RIVN", "LCID", "DELL", "HPQ", "SBUX", "MCD",
-    "KO", "PEP", "PG", "JNJ", "LLY", "ABBV", "MRK", "BMY",
+    "KO", "PEP", "PG", "JNJ", "LLY", "ABBV", "MRK", "BMY", "SPCX",
+    # Korean stocks
+    "SKHYNIX", "SAMSUNG", "HYUNDAI",
 })
 
 # Fields (in priority order) that may contain the listing timestamp (ms int).
@@ -132,6 +134,16 @@ async def _fetch_known_since() -> dict[str, str]:
     return result
 
 
+def _sort_rows(rows: list[dict]) -> None:
+    """Newest listings first, rows without a listing date last.
+
+    Two stable sorts: base A→Z as tiebreaker, then date descending
+    (None → "" sorts below every real date under reverse=True).
+    """
+    rows.sort(key=lambda r: r["base"])
+    rows.sort(key=lambda r: r["listed_at"] or "", reverse=True)
+
+
 _REFRESH_INTERVAL_S = 3600  # refresh cache every hour
 
 _cache: list[dict] = []
@@ -155,11 +167,7 @@ async def _do_refresh() -> None:
             for row in batch:
                 row["known_since"] = known_since.get(row["base"])
                 all_rows.append(row)
-        all_rows.sort(
-            key=lambda r: (r["listed_at"] is None, r["listed_at"] or "", r["base"]),
-            reverse=False,
-        )
-        all_rows.reverse()
+        _sort_rows(all_rows)
         _cache = all_rows
         _cache_updated_at = datetime.now(timezone.utc)
         log.info("launches: cache updated (%d rows)", len(_cache))

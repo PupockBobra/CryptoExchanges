@@ -9,10 +9,16 @@ from app.config import settings
 from app.db.timescale import init_db, seed_instruments_from_config
 from app.redis_client import get_redis, close_redis
 from app.api.routes import prices, arbitrage, health, instruments, exchanges, history, news, funding, launches
+from app.api.routes import open_interest, spb, stocks, reports
 from app.api.routes.launches import launches_refresh_loop
 from app.backfill.ohlcv import backfill_loop
 from app.backfill.funding import funding_collector_loop
 from app.moex.etl import moex_etl_loop
+from app.spb.etl import spb_etl_loop
+from app.spb.oi_etl import spb_oi_etl_loop
+from app.spb.orderbook import spb_orderbook_poll_loop
+from app.stocks.etl import stock_etl_loop
+from app.oi.etl import oi_collector_loop
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger(__name__)
@@ -44,17 +50,35 @@ for _name in ("ccxt.base.exchange", "asyncio"):
 # Connected WebSocket clients keyed by exact channel name
 _ws_clients: dict[str, set[WebSocket]] = {}
 
+# Strong references to the long-lived background tasks.  asyncio keeps only weak
+# references to tasks created via create_task(), so a fire-and-forget task can be
+# garbage-collected mid-flight — which silently killed the SPB ETL loop, leaving
+# its data to go stale.  Holding the references here prevents that.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> None:
+    """Create a background task and keep a strong reference to it."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_instruments_from_config()
     await get_redis()
-    asyncio.create_task(_redis_broadcast_loop())
-    asyncio.create_task(backfill_loop())
-    asyncio.create_task(funding_collector_loop())
-    asyncio.create_task(launches_refresh_loop())
-    asyncio.create_task(moex_etl_loop())
+    _spawn(_redis_broadcast_loop())
+    _spawn(backfill_loop())
+    _spawn(funding_collector_loop())
+    _spawn(launches_refresh_loop())
+    _spawn(moex_etl_loop())
+    _spawn(spb_etl_loop())
+    _spawn(spb_oi_etl_loop())
+    _spawn(spb_orderbook_poll_loop())
+    _spawn(stock_etl_loop())
+    _spawn(oi_collector_loop())
     log.info("Backend started")
     yield
     await close_redis()
@@ -136,7 +160,11 @@ app.include_router(exchanges.router,    prefix="/api/exchanges",    tags=["excha
 app.include_router(history.router,      prefix="/api/history",      tags=["history"])
 app.include_router(news.router,         prefix="/api/news",         tags=["news"])
 app.include_router(funding.router,      prefix="/api/funding",      tags=["funding"])
-app.include_router(launches.router,     prefix="/api/launches",     tags=["launches"])
+app.include_router(launches.router,         prefix="/api/launches",         tags=["launches"])
+app.include_router(open_interest.router,    prefix="/api/open-interest",    tags=["open-interest"])
+app.include_router(spb.router,              prefix="/api/spb",              tags=["spb"])
+app.include_router(stocks.router,           prefix="/api/stocks",           tags=["stocks"])
+app.include_router(reports.router,          prefix="/api/reports",          tags=["reports"])
 
 
 @app.websocket("/ws/{channel}")
@@ -148,9 +176,12 @@ async def websocket_endpoint(websocket: WebSocket, channel: str):
         while True:
             await websocket.receive_text()   # keep-alive ping/pong
     except WebSocketDisconnect:
+        log.info("WS disconnected: channel=%s", channel)
+    finally:
+        # Deregister on ANY exit path — a non-disconnect exception must not
+        # leave a dead socket in the broadcast fan-out set.
         clients = _ws_clients.get(channel)
         if clients is not None:
             clients.discard(websocket)
             if not clients:
                 _ws_clients.pop(channel, None)
-        log.info("WS disconnected: channel=%s", channel)

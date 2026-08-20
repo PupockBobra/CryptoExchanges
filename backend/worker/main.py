@@ -51,11 +51,15 @@ async def _wait_for_reload() -> None:
     """Block until an instruments:reload message arrives on Redis."""
     r = await get_redis()
     pubsub = r.pubsub()
-    await pubsub.subscribe("instruments:reload")
-    async for msg in pubsub.listen():
-        if msg["type"] == "message":
-            await pubsub.unsubscribe("instruments:reload")
-            return
+    try:
+        await pubsub.subscribe("instruments:reload")
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                return
+    finally:
+        # Always release the connection — runs on normal return AND on the
+        # task.cancel() that _run_collectors issues, so reloads don't leak.
+        await pubsub.aclose()
 
 
 async def _run_collectors(

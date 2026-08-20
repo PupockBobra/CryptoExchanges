@@ -21,7 +21,10 @@ export function useWebSocket(channel: string, { onMessage, enabled = true }: Opt
 
   const connect = useCallback(() => {
     if (!enabled || cancelledRef.current) return
-    const base = import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}`
+    // Match the page scheme: an https:// page must use wss:// (browsers block
+    // ws:// as mixed content). VITE_WS_URL overrides for cross-origin setups.
+    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const base = import.meta.env.VITE_WS_URL ?? `${scheme}//${window.location.host}`
     const ws = new WebSocket(`${base}/ws/${channel}`)
     wsRef.current = ws
 

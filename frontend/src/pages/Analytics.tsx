@@ -18,9 +18,8 @@ import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
 import { exportWeeklyCsv } from '../utils/exportCsv'
+import { fetchJson } from '../utils/api'
 
-// Sections where MOEX has no data — exclude from traces entirely
-const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
 
@@ -147,13 +146,16 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
     const weekStarts = Array.from(new Set(rows.map((r) => r.week_start))).sort()
     const labels = weekStarts.map(weekRangeLabel)
 
-    const scale  = 1e9
-    const suffix = 'B'
+    const scale  = section === 'Korean Market' ? 1e6 : 1e9
+    const suffix = section === 'Korean Market' ? 'M'  : 'B'
 
-    // Exchanges to include: omit moex for sections that have no MOEX data
-    const visibleExchanges = MOEX_SECTIONS.includes(section)
-      ? VOLUME_EXCHANGES.filter((ex) => ex !== 'moex')
-      : VOLUME_EXCHANGES
+    // Include MOEX only when this symbol actually has MOEX data (e.g. metals,
+    // commodities, and the NASD/SPYF index futures mapped to QQQ/SPY) — so US
+    // stocks without a FORTS contract don't get an empty moex segment.
+    const hasMoex = rows.some((r) => r.exchange === 'moex')
+    const visibleExchanges = hasMoex
+      ? VOLUME_EXCHANGES
+      : VOLUME_EXCHANGES.filter((ex) => ex !== 'moex')
 
     // Build one trace per exchange; Y values pre-scaled for readable ticks
     const traces: Plotly.Data[] = visibleExchanges.map((ex: Exchange) => {
@@ -234,9 +236,11 @@ export function Analytics() {
   const load = async () => {
     setLoading(true)
     try {
-      const data: WeeklyRow[] = await fetch(`${API}/weekly-adtv`).then((r) => r.json())
+      const data = await fetchJson<WeeklyRow[]>(`${API}/weekly-adtv`)
       setAllRows(data)
       setLastSync(new Date())
+    } catch (e) {
+      console.error('Analytics: failed to load weekly ADTV', e)
     } finally {
       setLoading(false)
     }
@@ -299,7 +303,7 @@ export function Analytics() {
             Единица измерения
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            ₽B (миллиарды рублей).
+            Korean Market — ₽M (миллионы рублей), все остальные — ₽B (миллиарды рублей).
           </div>
         </div>
       </div>

@@ -24,6 +24,12 @@ def _is_not_supported(exc: Exception) -> bool:
     return "NotSupported" in type(exc).__name__ or "not support" in str(exc).lower()
 
 
+# After this many consecutive watch_tickers failures, stop spinning the
+# per-symbol fallback and surface the error to run() so it marks the collector
+# disconnected and reconnects with backoff (a hung socket otherwise loops forever).
+_MAX_CONSECUTIVE_FAILURES = 5
+
+
 class BaseCollector(ABC):
     exchange_id: str
     reconnect_delay: float = 5.0
@@ -157,6 +163,7 @@ class BaseCollector(ABC):
         self._symbols_active = combined
         self._status = "connected"
 
+        consecutive_failures = 0
         while True:
             try:
                 tickers = await exchange.watch_tickers(valid_ex)
@@ -171,6 +178,15 @@ class BaseCollector(ABC):
                         for ex_sym in valid_ex
                     ))
                     return
+                consecutive_failures += 1
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    # Socket is likely dead, not just hiccuping — raise so run()
+                    # reconnects with backoff instead of spinning here forever.
+                    log.warning(
+                        "[%s] watch_tickers failed %d× in a row, forcing reconnect: %s",
+                        self.exchange_id, consecutive_failures, exc,
+                    )
+                    raise
                 # Transient error — sequential fallback for one round, then retry
                 for ex_sym in valid_ex:
                     try:
@@ -180,6 +196,7 @@ class BaseCollector(ABC):
                         log.debug("[%s] watch_ticker %s: %s", self.exchange_id, ex_sym, err)
                 continue
 
+            consecutive_failures = 0
             for ex_sym, ticker in tickers.items():
                 if ex_sym in sym_map:
                     await self._handle_ticker(sym_map[ex_sym], ticker)

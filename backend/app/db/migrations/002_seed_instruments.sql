@@ -4,10 +4,13 @@
 
 INSERT INTO instruments (canonical, type, base_asset, quote_asset, description, enabled, aliases)
 VALUES
-  -- ── Spot crypto ────────────────────────────────────────────────────────────
-  ('BTC/USDT',  'spot', 'BTC',    'USDT', 'Bitcoin spot',              true, '{"hyperliquid": "BTC/USDC"}'::jsonb),
-  ('ETH/USDT',  'spot', 'ETH',    'USDT', 'Ethereum spot',             true, '{"hyperliquid": "ETH/USDC"}'::jsonb),
-  ('SOL/USDT',  'spot', 'SOL',    'USDT', 'Solana spot',               true, '{"hyperliquid": "SOL/USDC"}'::jsonb),
+  -- ── Crypto majors ──────────────────────────────────────────────────────────
+  -- type='spot' drives the real-time price feed (spot symbols below).  Their
+  -- daily *volume* and *open interest*, however, are sourced from PERPETUAL
+  -- futures via CRYPTO_PERP_OVERRIDES in backend/app/exchanges.py.
+  ('BTC/USDT',  'spot', 'BTC',    'USDT', 'Bitcoin',                   true, '{"hyperliquid": "BTC/USDC"}'::jsonb),
+  ('ETH/USDT',  'spot', 'ETH',    'USDT', 'Ethereum',                  true, '{"hyperliquid": "ETH/USDC"}'::jsonb),
+  ('SOL/USDT',  'spot', 'SOL',    'USDT', 'Solana',                    true, '{"hyperliquid": "SOL/USDC"}'::jsonb),
 
   -- ── Precious metals (perps) ────────────────────────────────────────────────
   ('XAU/USDT:USDT', 'perp', 'XAU', 'USDT', 'Gold perpetual',          true, '{"hyperliquid": "XYZ-GOLD/USDC:USDC"}'::jsonb),
@@ -30,7 +33,13 @@ VALUES
   ('NVDA/USDT:USDT',  'perp', 'NVDA',  'USDT', 'NVIDIA perpetual',            true, '{"mexc": null, "hyperliquid": "CASH-NVDA/USDT0:USDT0"}'::jsonb),
   ('QQQ/USDT:USDT',   'perp', 'QQQ',   'USDT', 'Invesco QQQ ETF perpetual',   true, '{"mexc": "QQQSTOCK/USDT:USDT", "hyperliquid": null}'::jsonb),
   ('SPY/USDT:USDT',   'perp', 'SPY',   'USDT', 'SPDR S&P 500 ETF perpetual',  true, '{"mexc": null, "hyperliquid": null}'::jsonb),
-  ('TSLA/USDT:USDT',  'perp', 'TSLA',  'USDT', 'Tesla perpetual',             true, '{"mexc": null, "hyperliquid": null}'::jsonb)
+  ('TSLA/USDT:USDT',  'perp', 'TSLA',  'USDT', 'Tesla perpetual',             true, '{"mexc": null, "hyperliquid": null}'::jsonb),
+  ('SPCX/USDT:USDT',  'perp', 'SPCX',  'USDT', 'SpaceX (pre-IPO) perpetual',  true, '{"mexc": "SPCXSTOCK/USDT:USDT", "hyperliquid": "XYZ-SPCX/USDC:USDC"}'::jsonb),
+
+  -- ── Korean market (perps) ──────────────────────────────────────────────────
+  ('SKHYNIX/USDT:USDT', 'perp', 'SKHYNIX', 'USDT', 'SK Hynix perpetual',   true, '{"hyperliquid": "XYZ-SKHX/USDC:USDC", "mexc": "SKHYNIXSTOCK/USDT:USDT"}'::jsonb),
+  ('SAMSUNG/USDT:USDT', 'perp', 'SAMSUNG', 'USDT', 'Samsung perpetual',     true, '{"hyperliquid": "XYZ-SMSN/USDC:USDC", "mexc": "SAMSUNGSTOCK/USDT:USDT"}'::jsonb),
+  ('HYUNDAI/USDT:USDT', 'perp', 'HYUNDAI', 'USDT', 'Hyundai perpetual',     true, '{"hyperliquid": "XYZ-HYUNDAI/USDC:USDC", "mexc": "HYUNDAISTOCK/USDT:USDT"}'::jsonb)
 
 ON CONFLICT (canonical) DO UPDATE SET
   type         = EXCLUDED.type,

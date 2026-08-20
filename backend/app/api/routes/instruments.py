@@ -1,4 +1,5 @@
 import json
+import asyncpg
 from fastapi import APIRouter, HTTPException
 
 from app.db.timescale import (
@@ -29,16 +30,17 @@ async def list_instruments():
 
 @router.post("/", status_code=201)
 async def add_instrument(body: InstrumentCreate):
-    row = await create_instrument(
-        canonical=body.canonical,
-        type_=body.type,
-        base_asset=body.base_asset,
-        quote_asset=body.quote_asset,
-        description=body.description,
-        enabled=body.enabled,
-        aliases=body.aliases,
-    )
-    if row is None:
+    try:
+        row = await create_instrument(
+            canonical=body.canonical,
+            type_=body.type,
+            base_asset=body.base_asset,
+            quote_asset=body.quote_asset,
+            description=body.description,
+            enabled=body.enabled,
+            aliases=body.aliases,
+        )
+    except asyncpg.UniqueViolationError:
         raise HTTPException(409, "Instrument already exists")
     await _signal_reload()
     return _row_to_dict(row)
@@ -49,7 +51,10 @@ async def edit_instrument(id: int, body: InstrumentUpdate):
     fields = body.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(400, "No fields to update")
-    row = await update_instrument(id, **fields)
+    try:
+        row = await update_instrument(id, **fields)
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(409, "Another instrument already uses that canonical symbol")
     if row is None:
         raise HTTPException(404, "Instrument not found")
     await _signal_reload()

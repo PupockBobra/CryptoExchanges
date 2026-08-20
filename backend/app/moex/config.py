@@ -19,6 +19,14 @@ ASSET_ISS_CODE: dict[str, str] = {
     "SV": "SILV",
     "PT": "PLT",
     "PD": "PLD",
+    "NASD": "NASD",   # NASDAQ-100 index futures
+    "SPYF": "SPYF",   # S&P 500 index futures
+    # Crypto index futures (ISS ASSETCODE == ticker)
+    "BTC": "BTC",
+    "ETH": "ETH",
+    "SOL": "SOL",
+    "XRP": "XRP",
+    "TRX": "TRX",
 }
 
 # Internal DB key → canonical symbol in the arbitrage tracker
@@ -29,4 +37,12 @@ ASSET_TO_CANONICAL: dict[str, str] = {
     "SV": "XAG/USDT:USDT",
     "PT": "XPT/USDT:USDT",
     "PD": "XPD/USDT:USDT",
+    "NASD": "QQQ/USDT:USDT",   # NASDAQ-100 → Invesco QQQ
+    "SPYF": "SPY/USDT:USDT",   # S&P 500 → SPDR SPY
+    # Crypto index futures → canonical crypto symbols (stack with crypto perps)
+    "BTC": "BTC/USDT",
+    "ETH": "ETH/USDT",
+    "SOL": "SOL/USDT",
+    "XRP": "XRP/USDT",
+    "TRX": "TRX/USDT",
 }

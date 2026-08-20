@@ -77,13 +77,14 @@ export const EXCHANGE_COLORS: Record<Exchange, string> = {
 // ── Symbol sections ───────────────────────────────────────────────────────────
 
 export const SYMBOL_SECTIONS = [
-  { label: 'Commodities',    bases: ['BRN', 'WTI', 'USOIL', 'NATGAS', 'NGAS', 'UKOIL', 'BRENT'] },
+  { label: 'Commodities',    bases: ['BRN', 'WTI', 'USOIL', 'NATGAS', 'NGAS', 'UKOIL', 'BRENT', 'COPPER', 'ALUMINIUM', 'WHEAT', 'CORN', 'URANIUM', 'TTF'] },
   { label: 'Precious Metals', bases: ['XAU', 'XAG', 'XPT', 'XPD'] },
-  { label: 'US Market',      bases: ['NVDA', 'QQQ', 'SPY', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOGL', 'META'] },
-  { label: 'Spot Crypto',    bases: [] as string[] },   // catch-all
+  { label: 'US Market',      bases: ['NVDA', 'QQQ', 'SPY', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'SPCX'] },
+  { label: 'Korean Market',  bases: ['SKHYNIX', 'SAMSUNG', 'HYUNDAI'] },
+  { label: 'Crypto Perps',   bases: [] as string[] },   // catch-all
 ] as const
 
-export type SymbolSection = 'Commodities' | 'Precious Metals' | 'US Market' | 'Spot Crypto'
+export type SymbolSection = 'Commodities' | 'Precious Metals' | 'US Market' | 'Korean Market' | 'Crypto Perps'
 
 /** Classify a canonical symbol (e.g. 'BRN/USDT:USDT') into a display section. */
 export function classifySymbol(sym: string): SymbolSection {
@@ -93,7 +94,7 @@ export function classifySymbol(sym: string): SymbolSection {
       return section.label as SymbolSection
     }
   }
-  return 'Spot Crypto'
+  return 'Crypto Perps'
 }
 
 export const INSTRUMENT_COLORS: Record<string, string> = {
@@ -105,6 +106,12 @@ export const INSTRUMENT_COLORS: Record<string, string> = {
   BRENT:  '#c47a35',
   NATGAS: '#4682b4',
   NGAS:   '#4682b4',
+  COPPER:    '#b87333',
+  ALUMINIUM: '#8ca0b3',
+  WHEAT:     '#d9a441',
+  CORN:      '#e1c340',
+  URANIUM:   '#3fae5a',
+  TTF:       '#5b9bd5',
   // Precious metals
   XAU:    '#ffd700',
   XAG:    '#adb5bd',
@@ -120,6 +127,11 @@ export const INSTRUMENT_COLORS: Record<string, string> = {
   MSFT:   '#00a4ef',
   GOOGL:  '#4285f4',
   META:   '#0668e1',
+  SPCX:   '#005288',
+  // Korean stocks
+  SKHYNIX: '#1a73e8',
+  SAMSUNG: '#1428a0',
+  HYUNDAI: '#002c5f',
 }
 
 /** BTC/USDT → BTC/USDT   XAU/USDT:USDT → XAU/USDT PERP */

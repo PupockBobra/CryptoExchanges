@@ -6,11 +6,19 @@ import { Exchanges }   from './pages/Exchanges'
 import { History }     from './pages/History'
 import { Analytics }          from './pages/Analytics'
 import { DailyVolume }        from './pages/DailyVolume'
+import { SPBVolume }          from './pages/SPBVolume'
+import { SPBWeekly }          from './pages/SPBWeekly'
+import { SPBMarketShare }     from './pages/SPBMarketShare'
+import { SPBOpenInterest }    from './pages/SPBOpenInterest'
+import { SPBOrderBook }       from './pages/SPBOrderBook'
 import { TradFiMarketShare }  from './pages/TradFiMarketShare'
 import { Launches }           from './pages/Launches'
 import { News }        from './pages/News'
 import { Funding }     from './pages/Funding'
-import type { Page, Theme } from './components/Header'
+import { OpenInterest } from './pages/OpenInterest'
+import { CustomReport } from './pages/CustomReport'
+import type { Page, Theme }  from './components/Header'
+import { fetchJson } from './utils/api'
 
 const DEFAULT_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XAU/USDT:USDT', 'XAG/USDT:USDT']
 
@@ -33,12 +41,12 @@ export default function App() {
   // Load active symbols from backend
   const loadSymbols = () => {
     const apiBase = import.meta.env.VITE_API_URL ?? ''
-    fetch(`${apiBase}/api/prices/symbols`)
-      .then((r) => r.json())
+    fetchJson<{ symbols?: string[] }>(`${apiBase}/api/prices/symbols`)
       .then((data) => {
-        if (data.symbols?.length) {
-          setSymbols(data.symbols)
-          setSymbol((prev) => data.symbols.includes(prev) ? prev : data.symbols[0])
+        const syms = data.symbols
+        if (syms?.length) {
+          setSymbols(syms)
+          setSymbol((prev) => syms.includes(prev) ? prev : syms[0])
         }
       })
       .catch(() => { /* keep defaults */ })
@@ -70,10 +78,17 @@ export default function App() {
           {page === 'history'     && <History />}
           {page === 'analytics'           && <Analytics />}
           {page === 'daily-volume'        && <DailyVolume />}
+          {page === 'spb-volume'          && <SPBVolume />}
+          {page === 'spb-weekly'          && <SPBWeekly />}
+          {page === 'spb-market-share'    && <SPBMarketShare />}
+          {page === 'spb-open-interest'   && <SPBOpenInterest />}
+          {page === 'spb-order-book'      && <SPBOrderBook />}
           {page === 'tradfi-market-share' && <TradFiMarketShare />}
           {page === 'launches'            && <Launches />}
           {page === 'news'        && <News />}
-          {page === 'funding'     && <Funding />}
+          {page === 'funding'        && <Funding />}
+          {page === 'open-interest'  && <OpenInterest />}
+          {page === 'custom-report'  && <CustomReport />}
         </div>
       </div>
     </div>

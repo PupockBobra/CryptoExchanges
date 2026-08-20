@@ -108,6 +108,8 @@ export function Exchanges() {
       const r = await fetch(API)
       if (r.ok) setStats(await r.json())
       setLastFetch(new Date())
+    } catch (e) {
+      console.error('Exchanges: failed to load stats', e)
     } finally {
       setLoading(false)
     }

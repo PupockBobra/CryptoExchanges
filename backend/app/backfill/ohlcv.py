@@ -22,7 +22,7 @@ from app.db.timescale import (
     upsert_ohlcv_daily,
     get_ohlcv_daily_latest_ts,
 )
-from app.exchanges import make_exchange
+from app.exchanges import make_exchange, CRYPTO_PERP_OVERRIDES
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +30,48 @@ BACKFILL_SINCE   = datetime(2026, 1, 1, tzinfo=timezone.utc)
 TIMEFRAME        = "1d"
 REFRESH_INTERVAL = 6 * 3600   # re-run every 6 hours to refresh today's partial candle
 
+# BTC/ETH/SOL trading volume is sourced from PERPETUAL futures, not spot, and
+# stored under the same canonical symbol — so every volume chart (Analytics /
+# Daily Volume / History) shows perp volume while Realtime Prices is unaffected.
+# Mapping lives in app.exchanges (shared with the OI collector).
+PERP_VOLUME_OVERRIDES = CRYPTO_PERP_OVERRIDES
+
 # Global lock prevents multiple concurrent backfill runs from fighting over DB locks
 _backfill_running = asyncio.Lock()
+
+
+def parse_ohlcv_batch(
+    batch: list,
+    now_ms: int,
+    canonical: str,
+    exchange_id: str,
+    contract_size: float = 1.0,
+) -> tuple[list[tuple], bool]:
+    """
+    Convert one fetch_ohlcv page into ohlcv_daily upsert rows.
+
+    Drops bars dated after now_ms — some exchanges (notably MEXC) return
+    placeholder daily candles years into the future — and reports whether any
+    were seen, so the pagination loop stops instead of walking decades forward
+    and writing tens of thousands of bogus rows.
+
+    contract_size ≠ 1 only for MEXC perps, whose kline `vol` is in raw contract
+    units rather than base currency.
+    """
+    rows: list[tuple] = []
+    saw_future = False
+    for bar in batch:
+        ts_ms, open_, high, low, close, volume = bar[:6]
+        if ts_ms > now_ms:
+            saw_future = True
+            continue
+        ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+        base_vol  = volume * contract_size
+        quote_vol = round(close * base_vol, 4) if close and base_vol else 0.0
+        rows.append(
+            (ts, canonical, exchange_id, open_, high, low, close, base_vol, quote_vol)
+        )
+    return rows, saw_future
 
 
 async def _backfill_one(
@@ -39,6 +79,7 @@ async def _backfill_one(
     exchange_sym: str,
     canonical: str,
     has_alias: bool = False,
+    force_perp: bool = False,
 ) -> int:
     """
     Fetch daily OHLCV for one exchange × symbol pair and upsert into DB.
@@ -48,8 +89,11 @@ async def _backfill_one(
     symbol, so we skip the load_markets() existence check and attempt
     fetch_ohlcv directly (avoids OKX/Bybit load_markets timeouts on option
     instrument fetches).
+
+    force_perp=True fetches from the perpetual market even though the canonical
+    symbol has no ":" (used for BTC/ETH/SOL — see PERP_VOLUME_OVERRIDES).
     """
-    is_perp = ":" in canonical
+    is_perp = (":" in canonical) or force_perp
     market_type = None if is_perp else "spot"
     exchange = make_exchange(exchange_id, market_type=market_type)
     stored = 0
@@ -73,8 +117,14 @@ async def _backfill_one(
             if mkt:
                 contract_size = float(mkt.get("contractSize") or 1)
 
-        # Determine start timestamp
-        latest = await get_ohlcv_daily_latest_ts(canonical, exchange_id)
+        # Determine start timestamp.
+        # Perp-override symbols (BTC/ETH/SOL) always re-fetch the FULL history
+        # from BACKFILL_SINCE: a database may still hold the old SPOT rows under
+        # the same canonical, and the incremental "latest − 2d" path would leave
+        # that spot history in place while switching only the last few days to
+        # perp. Re-fetching the full range overwrites every bar with perp data
+        # (self-heals existing DBs without a manual DELETE).
+        latest = None if force_perp else await get_ohlcv_daily_latest_ts(canonical, exchange_id)
         if latest is None:
             since_dt = BACKFILL_SINCE
         else:
@@ -102,19 +152,10 @@ async def _backfill_one(
             if not batch:
                 break
 
-            saw_future = False
-            for bar in batch:
-                ts_ms, open_, high, low, close, volume = bar[:6]
-                if ts_ms > now_ms:
-                    saw_future = True
-                    continue
-                ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-                # Apply contract size normalisation for MEXC perps
-                base_vol  = volume * contract_size
-                quote_vol = round(close * base_vol, 4) if close and base_vol else 0.0
-                rows_to_upsert.append(
-                    (ts, canonical, exchange_id, open_, high, low, close, base_vol, quote_vol)
-                )
+            page_rows, saw_future = parse_ohlcv_batch(
+                batch, now_ms, canonical, exchange_id, contract_size
+            )
+            rows_to_upsert.extend(page_rows)
 
             last_ts_ms = batch[-1][0]
             # Stop once the page contains future bars or runs short.
@@ -161,14 +202,22 @@ async def _run_backfill_inner() -> None:
         log.info("No enabled instruments found, skipping backfill")
         return
 
-    # Build work list: [(exchange_id, exchange_symbol, canonical, has_alias), ...]
-    work: list[tuple[str, str, str, bool]] = []
+    # Build work list: [(exchange_id, exchange_symbol, canonical, has_alias, force_perp), ...]
+    work: list[tuple[str, str, str, bool, bool]] = []
     for inst in instruments:
         canonical: str = inst["canonical"]
         # asyncpg returns JSONB columns as raw strings — parse them
         raw = inst["aliases"]
         aliases: dict = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        # Crypto majors source their volume from perpetual futures, not spot.
+        perp_override = PERP_VOLUME_OVERRIDES.get(canonical)
         for ex_id in settings.exchanges:
+            if perp_override is not None:
+                ex_sym = perp_override.get(ex_id)
+                if ex_sym is None:
+                    continue   # exchange has no perp for this base
+                work.append((ex_id, ex_sym, canonical, True, True))
+                continue
             # Resolve the symbol name this exchange uses
             alias_val = aliases.get(ex_id)
             if alias_val is None and ex_id in aliases:
@@ -176,14 +225,14 @@ async def _run_backfill_inner() -> None:
                 continue
             has_alias  = alias_val is not None   # True when a specific alias was configured
             exchange_sym = alias_val or canonical
-            work.append((ex_id, exchange_sym, canonical, has_alias))
+            work.append((ex_id, exchange_sym, canonical, has_alias, False))
 
     # Run with bounded concurrency (4 at a time) to respect rate limits
     sem = asyncio.Semaphore(4)
 
-    async def limited(ex_id: str, ex_sym: str, can: str, alias: bool):
+    async def limited(ex_id: str, ex_sym: str, can: str, alias: bool, perp: bool):
         async with sem:
-            await _backfill_one(ex_id, ex_sym, can, has_alias=alias)
+            await _backfill_one(ex_id, ex_sym, can, has_alias=alias, force_perp=perp)
 
     await asyncio.gather(*[limited(*args) for args in work], return_exceptions=True)
     log.info("OHLCV backfill complete (%d exchange×symbol pairs processed)", len(work))

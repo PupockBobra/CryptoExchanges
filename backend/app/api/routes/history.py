@@ -24,6 +24,7 @@ from app.db.timescale import (
     fetch_weekly_adtv_rub,
     fetch_daily_volume_rub,
     fetch_tradfi_daily_volume,
+    fetch_weekly_volume_rub,
 )
 
 log = logging.getLogger(__name__)
@@ -132,6 +133,43 @@ async def get_tradfi_volume():
         {
             "date":       str(r["date"]),
             "date_label": r["date_label"].strip(),
+            "symbol":     r["symbol"],
+            "exchange":   r["exchange"],
+            "volume_rub": float(r["volume_rub"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/tradfi-weekly-volume")
+async def get_tradfi_weekly_volume():
+    """
+    Weekly SUMMED trading volume in RUB for tradfi perps only (Commodities,
+    Metals, US Market). Per symbol × exchange × ISO week, YTD. Weekly view of
+    the TradFi Market Share page.
+    """
+    rows = await fetch_weekly_volume_rub(tradfi_only=True)
+    return [
+        {
+            "date":       str(r["week_start"]),
+            "symbol":     r["symbol"],
+            "exchange":   r["exchange"],
+            "volume_rub": float(r["volume_rub"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/weekly-volume")
+async def get_weekly_volume():
+    """
+    Weekly SUMMED trading volume in RUB per symbol × exchange × ISO week, YTD,
+    across all asset classes. Weekly view of the asset-group charts.
+    """
+    rows = await fetch_weekly_volume_rub(tradfi_only=False)
+    return [
+        {
+            "date":       str(r["week_start"]),
             "symbol":     r["symbol"],
             "exchange":   r["exchange"],
             "volume_rub": float(r["volume_rub"] or 0),

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     mexc_api_key: str = ""
     mexc_secret: str = ""
 
+    # Finam TradeAPI secret (tapi_sk_…) for SPB Exchange perp turnover.
+    # Backend-only — grants read access to the owner's brokerage account, so it
+    # must never reach the frontend. The SPB ETL is a no-op when unset.
+    finam_api_token: str = ""
+
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
 

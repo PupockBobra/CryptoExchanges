@@ -241,6 +241,14 @@ body {
 .btn-secondary     { padding: 7px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 13px; transition: all .15s; }
 .btn-secondary:hover { border-color: var(--accent); }
 
+/* ── Custom Report builder ───────────────────────────────────────────────── */
+.report-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+.report-date  { padding: 6px 8px; font-size: 13px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+.report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.report-table th { position: sticky; top: 0; background: var(--surface); text-align: left; padding: 6px 10px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.report-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+.report-table tbody tr:hover { background: rgba(99,102,241,.06); }
+
 /* ── Modal ───────────────────────────────────────────────────────────────── */
 .modal-overlay  { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
 .modal          { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
@@ -326,6 +334,12 @@ body {
 /* Spinner */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin .8s linear infinite; }
+
+/* Order-book level flash — blinks on a changed price level, then fades out */
+@keyframes obFlashAsk { from { background-color: rgba(239, 68, 68, .38); } to { background-color: transparent; } }
+@keyframes obFlashBid { from { background-color: rgba(34, 197, 94, .38); } to { background-color: transparent; } }
+.ob-flash-ask { animation: obFlashAsk .6s ease-out; }
+.ob-flash-bid { animation: obFlashBid .6s ease-out; }
 
 /* ── Analytics page ─────────────────────────────────────────────────────── */
 .analytics-grid  { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 16px; }

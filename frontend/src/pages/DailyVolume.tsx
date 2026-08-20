@@ -7,8 +7,8 @@ import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
 import { exportDailyCsv } from '../utils/exportCsv'
+import { fetchJson } from '../utils/api'
 
-const MOEX_SECTIONS: SymbolSection[] = ['US Market', 'Spot Crypto']
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
 
 interface DailyRow {
@@ -93,12 +93,15 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     })
 
-    const scale  = 1e9
-    const suffix = 'B'
+    const scale  = section === 'Korean Market' ? 1e6 : 1e9
+    const suffix = section === 'Korean Market' ? 'M'  : 'B'
 
-    const visibleExchanges = MOEX_SECTIONS.includes(section)
-      ? VOLUME_EXCHANGES.filter(ex => ex !== 'moex')
-      : VOLUME_EXCHANGES
+    // Include MOEX only when this symbol actually has MOEX data (metals,
+    // commodities, and the NASD/SPYF index futures mapped to QQQ/SPY).
+    const hasMoex = rows.some(r => r.exchange === 'moex')
+    const visibleExchanges = hasMoex
+      ? VOLUME_EXCHANGES
+      : VOLUME_EXCHANGES.filter(ex => ex !== 'moex')
 
     const traces: Plotly.Data[] = visibleExchanges.map((ex: Exchange) => {
       const byDate = new Map<string, number>()
@@ -167,9 +170,11 @@ export function DailyVolume() {
   const load = async () => {
     setLoading(true)
     try {
-      const data: DailyRow[] = await fetch(`${API}/daily-volume`).then(r => r.json())
+      const data = await fetchJson<DailyRow[]>(`${API}/daily-volume`)
       setAllRows(data)
       setLastSync(new Date())
+    } catch (e) {
+      console.error('DailyVolume: failed to load daily volume', e)
     } finally {
       setLoading(false)
     }
@@ -227,7 +232,7 @@ export function DailyVolume() {
             Единица измерения
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            ₽B (миллиарды рублей).
+            Korean Market — ₽M (миллионы рублей), все остальные — ₽B (миллиарды рублей).
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, Rocket } from 'lucide-react'
+import { RefreshCw, Rocket, Archive } from 'lucide-react'
 import { EXCHANGE_COLORS } from '../types'
 import { daysAgo } from '../utils/format'
 import { SectionHeading } from '../components/SectionHeading'
@@ -77,6 +77,9 @@ const BASE_NAMES: Record<string, string> = {
   SBUX: 'Starbucks', MCD: "McDonald's", KO: 'Coca-Cola',
   PEP: 'PepsiCo', PG: 'Procter & Gamble',
   LLY: 'Eli Lilly', ABBV: 'AbbVie Inc.', MRK: 'Merck & Co.', BMY: 'Bristol-Myers Squibb',
+  SPCX: 'SpaceX (pre-IPO)',
+  // Korean stocks
+  SKHYNIX: 'SK Hynix Inc.', SAMSUNG: 'Samsung Electronics', HYUNDAI: 'Hyundai Motor Co.',
 }
 
 // Commodities = energy + metals + agricultural (all physical assets)
@@ -422,7 +425,7 @@ export function Launches() {
             Страница показывает
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Новые перп-контракты на традиционные активы (товары, металлы, акции, индексы) на крупнейших криптобиржах.
+            Перп-контракты на традиционные активы на крупнейших криптобиржах: Binance, OKX, Bybit, MEXC. Охватывает товары (нефть, газ, металлы), акции США и мировые индексы.
           </div>
         </div>
         <div style={{ padding: '12px 16px 12px 20px' }}>
@@ -430,8 +433,9 @@ export function Launches() {
             Разделы
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6 }}>
-            <b>New products</b> — инструмент появился на рынке впервые (самая ранняя дата листинга среди всех бирж не старше 7 дней).<br />
-            <b>New on exchange</b> — инструмент существует давно, но конкретная биржа добавила его недавно (в течение 7 дней).
+            <b>New products</b> — инструмент появился на рынке впервые: самая ранняя дата листинга среди всех бирж не старше 7 дней и в нашей базе нет более ранних данных по нему.<br />
+            <b>New on exchange</b> — инструмент давно существует, но конкретная биржа добавила его в течение последних 7 дней.<br />
+            <b>History of launches</b> — полный список всех отслеживаемых перпов, сгруппированный по категориям активов.
           </div>
         </div>
       </div>
@@ -467,7 +471,9 @@ export function Launches() {
             </>
           )}
 
-          {/* Category sections */}
+          {/* Historical launches — all instruments by category */}
+          <SectionHeading label="History of Launches" count={allGroups.length} accent icon={<Archive size={12} />} />
+
           {SECTION_ORDER.filter(s => s !== 'New').map(cat => {
             const groups = byCategory.get(cat as Exclude<Category, 'New'>) ?? []
             if (!groups.length) return null

@@ -6,6 +6,22 @@ Replaces three duplicate copies that previously lived in:
 """
 
 import ccxt.async_support as ccxt_async
+from ccxt.base.exchange import Exchange as _CcxtExchange
+
+
+# ── ccxt keysort None-safety patch ────────────────────────────────────────────
+# OKX intermittently returns a market with id=None. ccxt's set_markets() calls
+# keysort(markets_by_id) → sorted(dict.items()), which raises
+# "'<' not supported between instances of 'NoneType' and 'str'" and makes the
+# WHOLE load_markets() fail. Since OI/funding/OHLCV backfills all call
+# load_markets(), a single bad market silently breaks all OKX data collection.
+# Make the sort None-safe (None keys sort last) so one bad market can't take
+# down the exchange.
+def _safe_keysort(dictionary):
+    return dict(sorted(dictionary.items(), key=lambda kv: (kv[0] is None, kv[0])))
+
+
+_CcxtExchange.keysort = staticmethod(_safe_keysort)
 
 
 EXCHANGE_CLS: dict[str, type] = {
@@ -23,6 +39,28 @@ PERP_MARKET_TYPE: dict[str, str] = {
     "bybit":       "linear",
     "mexc":        "swap",
     "hyperliquid": "swap",     # USDC-margined perpetuals
+}
+
+# ── Crypto majors: spot price, perpetual volume/OI ────────────────────────────
+# BTC/ETH/SOL stay 'spot' instruments so the real-time price feed uses the spot
+# symbol, but their daily *trading volume* and *open interest* are sourced from
+# PERPETUAL futures and stored under the same canonical symbol. Only the
+# perpetual contract is used (no quarterly/delivery/options). Map:
+#   canonical → { exchange_id: perp symbol }
+# Consumed by backend/app/backfill/ohlcv.py and backend/app/oi/etl.py.
+CRYPTO_PERP_OVERRIDES: dict[str, dict[str, str]] = {
+    "BTC/USDT": {
+        "binance": "BTC/USDT:USDT", "okx": "BTC/USDT:USDT", "bybit": "BTC/USDT:USDT",
+        "mexc": "BTC/USDT:USDT", "hyperliquid": "BTC/USDC:USDC",
+    },
+    "ETH/USDT": {
+        "binance": "ETH/USDT:USDT", "okx": "ETH/USDT:USDT", "bybit": "ETH/USDT:USDT",
+        "mexc": "ETH/USDT:USDT", "hyperliquid": "ETH/USDC:USDC",
+    },
+    "SOL/USDT": {
+        "binance": "SOL/USDT:USDT", "okx": "SOL/USDT:USDT", "bybit": "SOL/USDT:USDT",
+        "mexc": "SOL/USDT:USDT", "hyperliquid": "SOL/USDC:USDC",
+    },
 }
 
 # Funding rate settlement interval per exchange
