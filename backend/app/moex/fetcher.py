@@ -10,6 +10,7 @@ from a ThreadPoolExecutor inside the async ETL loop without blocking the event l
 """
 
 import logging
+import math
 import os
 import time
 from datetime import date, timedelta
@@ -177,6 +178,84 @@ def _discover_secids_for_assetcode(
     return list(secids)
 
 
+def _snap_lot(x: float) -> float | None:
+    """Snap a raw turnover-derived lot to 1 significant figure.  Contract lots are
+    clean round numbers (0.001 / 0.01 / 1 / 100 …); the raw ratio comes out as
+    e.g. 0.984 or 98.9 due to intraday fx/price drift, so 1 sig-fig recovers the
+    canonical value."""
+    if x <= 0:
+        return None
+    return round(x, -math.floor(math.log10(x)))
+
+
+def resolve_front_secids(
+    assetcodes: list[str],
+    usdrub: float,
+    on_date: date | None = None,
+) -> dict[str, tuple[str | None, float | None]]:
+    """
+    Resolve, per ASSETCODE, the front-month SECID and its lot (coins/contract) —
+    on the most recent trading day.
+
+    FORTS contracts roll monthly, so the live feed can't hard-code a SECID.  We
+    sample the ISS market-level history endpoint for each assetcode, walking back
+    up to a week to skip weekends/holidays, and pick the single contract with the
+    highest VOLUME (the front month).  Calendar-spread SECIDs (concatenations like
+    ``BTN6BTQ6``) are excluded by length.
+
+    The lot is derived from that day's turnover the same way it was verified
+    against Finam — ``VALUE / (VOLUME × SETTLEPRICE × usdrub)`` (VALUE is roubles,
+    price is USD) — then snapped to 1 significant figure.  ``None`` lot when the
+    day had no volume (caller falls back to the config lot).
+
+    Returns ``{assetcode: (SECID|None, lot|None)}``.  Synchronous (ISS is
+    blocking) — call from a thread executor inside the async collector.
+    """
+    url = f"{_ISS_BASE}/history/engines/futures/markets/forts/securities.json"
+    today = on_date or date.today()
+    out: dict[str, tuple[str | None, float | None]] = {}
+    with _make_session() as session:
+        for ac in assetcodes:
+            max_len = len(ac) + 2          # single contract; spreads are longer
+            picked: dict | None = None
+            for offset in range(0, 7):     # walk back to the last trading day
+                d = today - timedelta(days=offset)
+                try:
+                    data = _get(session, url, {
+                        "assetcode":       ac,
+                        "date":            d.isoformat(),
+                        "history.columns": "SECID,VOLUME,VALUE,SETTLEPRICE",
+                        "start":           0,
+                    })
+                except Exception as exc:
+                    log.warning("ISS front-month lookup failed for %s on %s: %s", ac, d, exc)
+                    continue
+                cols = data["history"]["columns"]
+                best, best_vol = None, -1.0
+                for r in data["history"]["data"]:
+                    row = dict(zip(cols, r))
+                    secid = row.get("SECID")
+                    vol = float(row.get("VOLUME") or 0)
+                    if secid and len(secid) <= max_len and vol > best_vol:
+                        best, best_vol = row, vol
+                if best:
+                    picked = best
+                    break
+            if not picked:
+                out[ac] = (None, None)
+                continue
+            secid = picked["SECID"]
+            vol    = float(picked.get("VOLUME") or 0)
+            value  = float(picked.get("VALUE") or 0)
+            settle = float(picked.get("SETTLEPRICE") or 0)
+            lot = None
+            if vol > 0 and settle > 0 and usdrub and usdrub > 0:
+                lot = _snap_lot(value / (vol * settle * usdrub))
+            out[ac] = (secid, lot)
+            log.info("MOEX front-month %s: secid=%s lot=%s", ac, secid, lot)
+    return out
+
+
 def aggregate_asset_value_by_assetcode(
     asset_code: str,
     from_date: date,
@@ -239,3 +318,107 @@ def aggregate_asset_value_by_assetcode(
             asset_code, len(totals), len(secids),
         )
         return totals
+
+
+def aggregate_asset_oi_by_assetcode(
+    asset_code: str,
+    from_date: date,
+    till_date: date,
+) -> dict[date, tuple[float, float]]:
+    """
+    Open interest for ALL series of one ASSETCODE over [from_date, till_date],
+    summed per date → {date: (contracts, value_rub)}.
+
+    Same two-step discovery as ``aggregate_asset_value_by_assetcode`` (the OI of
+    an asset is spread across its live series, so a single front-month SECID
+    would undercount).  ISS serves both figures per series and date:
+    ``OPENPOSITION`` (contracts) and ``OPENPOSITIONVALUE`` (roubles) — no lot or
+    step-price math needed on our side.  Both are one-sided, as MOEX publishes
+    them.
+    """
+    with _make_session() as session:
+        secids = _discover_secids_for_assetcode(session, asset_code, from_date, till_date)
+        if not secids:
+            log.warning("ISS: no SECIDs discovered for assetcode=%s (OI)", asset_code)
+            return {}
+
+        totals: dict[date, tuple[float, float]] = {}
+        for secid in secids:
+            url = (
+                f"{_ISS_BASE}/history/engines/futures/markets/forts"
+                f"/securities/{secid}.json"
+            )
+            params = {
+                "from":            from_date.isoformat(),
+                "till":            till_date.isoformat(),
+                "history.columns": "TRADEDATE,OPENPOSITION,OPENPOSITIONVALUE",
+                "start":           0,
+            }
+            while True:
+                data   = _get(session, url, params)
+                hist   = data["history"]
+                cols   = hist["columns"]
+                cursor = data["history.cursor"]["data"][0]
+                idx, total, pagesize = cursor[0], cursor[1], cursor[2]
+
+                for row in hist["data"]:
+                    r    = dict(zip(cols, row))
+                    cnt  = r.get("OPENPOSITION")
+                    val  = r.get("OPENPOSITIONVALUE")
+                    if not cnt and not val:
+                        continue
+                    d = date.fromisoformat(r["TRADEDATE"])
+                    prev = totals.get(d, (0.0, 0.0))
+                    totals[d] = (prev[0] + float(cnt or 0), prev[1] + float(val or 0))
+
+                next_start = idx + pagesize
+                if next_start >= total:
+                    break
+                params = dict(params, start=next_start)
+
+        log.info(
+            "ISS assetcode=%s: aggregated OI for %d trading days from %d contracts",
+            asset_code, len(totals), len(secids),
+        )
+        return totals
+
+
+def fetch_market_value_by_assetcode(day: date) -> dict[str, float]:
+    """
+    Total VALUE (roubles) per ASSETCODE for every FORTS contract on one day.
+
+    The OKR baskets span ~58 assets, which the per-assetcode discovery above
+    would turn into hundreds of ISS calls per pass.  The market-level history
+    endpoint answers the same question for the WHOLE market in ~9 pages of 100
+    rows, so one day costs 9 requests no matter how wide the basket is.
+
+    Returns ``{}`` for a non-trading day — ISS publishes no rows at all for
+    weekends and holidays (verified on 15–16.08.2026).  Synchronous (ISS is
+    blocking) — call from a thread executor inside the async ETL.
+    """
+    url = f"{_ISS_BASE}/history/engines/futures/markets/forts/securities.json"
+    totals: dict[str, float] = {}
+    start = 0
+    with _make_session() as session:
+        while True:
+            data = _get(session, url, {
+                "date":            day.isoformat(),
+                "history.columns": "SECID,ASSETCODE,VALUE",
+                "start":           start,
+                "limit":           _PAGESIZE,
+            })
+            block = data.get("history", {})
+            rows  = block.get("data") or []
+            if not rows:
+                break
+            cols = block["columns"]
+            for r in rows:
+                row = dict(zip(cols, r))
+                code = row.get("ASSETCODE")
+                if not code:
+                    continue
+                totals[code] = totals.get(code, 0.0) + float(row.get("VALUE") or 0)
+            start += len(rows)
+            if len(rows) < _PAGESIZE:
+                break
+    return totals

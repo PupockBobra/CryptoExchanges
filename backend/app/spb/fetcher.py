@@ -92,8 +92,8 @@ class FinamClient:
                     delay *= 2
         raise RuntimeError(f"Finam GET {path} failed after {retries} attempts: {last_exc}")
 
-    def _symbol(self, ticker: str) -> str:
-        return urllib.parse.quote(f"{ticker}@{FINAM_MIC}")
+    def _symbol(self, ticker: str, mic: str | None = None) -> str:
+        return urllib.parse.quote(f"{ticker}@{mic or FINAM_MIC}")
 
     async def fetch_daily_bars(self, ticker: str, from_date, till_date) -> list[dict]:
         """Daily OHLCV bars in [from_date, till_date].  Each bar carries volume (contracts)."""
@@ -112,14 +112,17 @@ class FinamClient:
         data = await self._get(f"/v1/instruments/{self._symbol(ticker)}/quotes/latest")
         return data.get("quote", {})
 
-    async def fetch_orderbook(self, ticker: str, retries: int = 4) -> dict:
+    async def fetch_orderbook(self, ticker: str, mic: str | None = None, retries: int = 4) -> dict:
         """
         Live order-book snapshot.  ``rows`` each carry ``price`` plus one of
-        ``buy_size`` (bid) / ``sell_size`` (ask), in USD / contracts.
+        ``buy_size`` (bid) / ``sell_size`` (ask), price in USD, size in contracts.
+
+        ``mic`` overrides the default MIC (SPB perps under ``RUSX``); pass
+        ``"RTSX"`` with a FORTS SECID for MOEX derivatives.
 
         The continuous poller passes ``retries=1``: retrying a rate-limited (429)
         call with backoff only amplifies load, so it skips and waits for the next
         cycle instead.
         """
-        data = await self._get(f"/v1/instruments/{self._symbol(ticker)}/orderbook", retries=retries)
+        data = await self._get(f"/v1/instruments/{self._symbol(ticker, mic)}/orderbook", retries=retries)
         return data.get("orderbook", {})

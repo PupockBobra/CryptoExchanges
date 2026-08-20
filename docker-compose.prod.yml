@@ -52,6 +52,10 @@ services:
     env_file: .env
     restart: unless-stopped
     mem_limit: 1g
+    volumes:
+      # Telegram user session for the SPB funding ingest — host-side only, never
+      # baked into the image (see app/spb/funding_tg.py).
+      - ./secrets/telegram:/data/telegram
     depends_on:
       timescaledb:
         condition: service_healthy

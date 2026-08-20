@@ -13,6 +13,10 @@ Exchange support:
   MEXC        — fetch_open_interest() NotSupported via ccxt;
                 use contract.mexc.com REST: holdVol × contractSize × lastPrice
                 no history API support
+  Bitget      — ccxt returns openInterest=None; read info['openInterestList'][0]['size']
+                USD via ticker; fetchOpenInterestHistory() NotSupported
+  MOEX        — no exchange API at all: OPENPOSITION per FORTS series from ISS,
+                summed per asset (app/moex/oi_etl.py), stored as exchange='moex'
 """
 
 import asyncio
@@ -26,6 +30,7 @@ import ccxt.async_support as ccxt_async
 from app.config import settings
 from app.db.timescale import (
     fetch_instruments,
+    stock_symbol,
     upsert_open_interest,
     get_pool,
 )
@@ -75,12 +80,52 @@ def _extract_oi_from_result(result: dict, ex_id: str) -> tuple[float | None, flo
     if oi is None:
         oi = _safe_float(info.get("openInterest") or info.get("open_interest"))
 
+    if oi is None and ex_id == "bitget":
+        # ccxt returns openInterest=None for bitget: the value sits in
+        # info['openInterestList'][0]['size'] (contracts).  No USD field and no
+        # history endpoint — the caller's ticker fallback prices it.
+        lst = info.get("openInterestList")
+        if isinstance(lst, list) and lst:
+            oi = _safe_float((lst[0] or {}).get("size"))
+
     if oi_val is None and oi is not None and ex_id == "hyperliquid":
         price = _safe_float(info.get("markPx") or info.get("midPx") or info.get("oraclePx"))
         if price:
             oi_val = oi * price
 
     return oi, oi_val
+
+
+async def _stock_work_items(known: set[str]) -> list[tuple[str, str, str]]:
+    """
+    OI work items for the WHOLE equity-perp universe (~200 tickers × 6 venues).
+
+    They are not in the curated `instruments` table, so their exchange symbols
+    come from the stock ETL's (cached) discovery and rows are stored under the canonical
+    '<TICKER>/USDT:USDT', which is what the charts group by.  The Open Interest
+    page still shows only the top N (filtered in the route) — the rest exists so
+    Custom Report can chart any instrument the app tracks.
+    """
+    from app.stocks.etl import build_stock_universe
+    try:
+        # Shared cache: the stock ETL refreshes it every 6 h.  Discovery here
+        # would be a second `load_markets()` sweep seconds after that one, which
+        # is exactly what makes Hyperliquid answer 429.
+        universe = await build_stock_universe()
+    except Exception as e:
+        log.warning("OI: stock universe unavailable: %s", e)
+        return []
+
+    work: list[tuple[str, str, str]] = []
+    for ex_id, insts in universe.items():
+        if ex_id not in EXCHANGE_CLS or ex_id not in settings.exchanges:
+            continue
+        for ex_sym, ticker, _cs in insts:
+            canonical = stock_symbol(ticker)
+            if canonical in known:   # a curated instrument already covers it
+                continue
+            work.append((ex_id, ex_sym, canonical))
+    return work
 
 
 async def _build_work_list() -> list[tuple[str, str, str]]:
@@ -111,6 +156,9 @@ async def _build_work_list() -> list[tuple[str, str, str]]:
                 continue
             ex_sym = alias_val or canonical
             work.append((ex_id, ex_sym, canonical))
+
+    known = {inst["canonical"] for inst in instruments}
+    work += await _stock_work_items(known)
     return work
 
 
@@ -203,7 +251,11 @@ async def _backfill_symbol(ex_id: str, ex_sym: str, canonical: str) -> int:
     # `since` predates the available history, so we also reject any window whose
     # newest bar is stale and retry shorter. The UI shows ≤90 days.
     now = datetime.now(tz=timezone.utc)
-    fallback_windows = [90, 30]
+    # 29 (not 30) for the narrow window: Binance rejects a startTime older than
+    # 30 days, and flooring `since` to midnight pushes a 30-day window just past
+    # that limit (-1130 "startTime is invalid") — so the 30d fallback also fails
+    # and Binance gets NO backfill at all. 29d floored stays inside the limit.
+    fallback_windows = [90, 29]
     stale_before = now - timedelta(days=3)
     last_idx = len(fallback_windows) - 1
     exchange = make_exchange(ex_id)
@@ -393,10 +445,11 @@ async def oi_collector_loop() -> None:
                 ccxt_work  = [(ex_id, ex_sym, canonical) for ex_id, ex_sym, canonical in work if ex_id != "mexc"]
 
                 # Backfill history once per newly-seen pair (Binance/OKX/Bybit
-                # only — MEXC and Hyperliquid expose no OI history API).
+                # only — MEXC, Hyperliquid and Bitget expose no OI history API,
+                # and probing them would spin up a ccxt client per pair).
                 backfill_work = [
                     w for w in ccxt_work
-                    if w[0] not in ("mexc", "hyperliquid") and w not in backfilled
+                    if w[0] not in ("mexc", "hyperliquid", "bitget") and w not in backfilled
                 ]
                 if backfill_work:
                     await asyncio.gather(*[limited(*args) for args in backfill_work], return_exceptions=True)

@@ -34,8 +34,10 @@ log = logging.getLogger(__name__)
 _TZ = ZoneInfo("Europe/Moscow")
 _WINDOW_START_HOUR = 6   # begin the morning refresh window at 06:00 МСК
 _DEADLINE_HOUR = 9       # data must be fresh by 09:00 МСК
-_DAYTIME_PASS_HOUR = 14  # one afternoon pass catches results published after 09:00
-_WINDOW_RETRY_SEC = 1800  # refresh every 30 min inside the window
+
+_POLL_SEC = 300               # re-check the wall clock this often (see loop)
+_MORNING_REFRESH_SEC = 1800   # inside 06:00→09:00 МСК: refresh every 30 min
+_IDLE_REFRESH_SEC = 6 * 3600  # rest of the day: refresh every 6 h
 
 _LOOKBACK_DAYS = 7            # re-fetch this far back to catch late fills
 _INITIAL_LOOKBACK_DAYS = 180  # first-run backfill window
@@ -65,31 +67,43 @@ async def _safe_pass() -> None:
         log.warning("SPB OI ETL: pass failed: %s", exc)
 
 
-async def _sleep_until_hour(hour: int) -> None:
-    """Sleep until the next occurrence of ``hour``:00 МСК."""
-    now = datetime.now(_TZ)
-    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    await asyncio.sleep((target - now).total_seconds())
+def _refresh_due(now: datetime, last_run: datetime) -> bool:
+    """Whether enough wall-clock time has elapsed to run another pass.
+
+    30 min apart inside the 06:00→09:00 МСК deadline window, 6 h apart the rest
+    of the day.  Comparing wall clocks (not a fixed sleep) is what lets the loop
+    recover after a host suspend: on resume ``now`` jumps forward, the elapsed
+    gap exceeds the threshold, and the next poll fires a pass immediately.
+    """
+    in_morning_window = _WINDOW_START_HOUR <= now.hour < _DEADLINE_HOUR
+    threshold = _MORNING_REFRESH_SEC if in_morning_window else _IDLE_REFRESH_SEC
+    return (now - last_run).total_seconds() >= threshold
 
 
 async def spb_oi_etl_loop() -> None:
-    """Background task: refresh on startup, every morning before 09:00 МСК,
-    plus one afternoon pass for results the exchange publishes late."""
+    """Background task: keep SPB open interest fresh, self-healing across host
+    sleep.
+
+    The schedule is driven by *polling the wall clock* on a short interval, not
+    by one long ``asyncio.sleep`` per window.  A single multi-hour sleep does
+    not survive the host (Docker Desktop VM) suspending: the event loop's
+    monotonic timer is frozen while the VM is suspended, but the wall clock
+    jumps forward on resume, so the sleep fires hours-to-days late and the loop
+    silently stalls for days (observed 2026-07-13: OI missed a trading day).
+    Re-reading ``datetime.now`` every few minutes reacts to the real wall-clock
+    time and recovers on its own right after a resume.
+
+    Cadence: every 30 min inside the 06:00→09:00 МСК window (so the previous
+    day's OI lands before the 09:00 deadline whenever the exchange publishes
+    it), every 6 h otherwise (catches late fills and overnight publishes).
+    """
     await _safe_pass()  # immediate refresh so a fresh deploy has data at once
+    last_run = datetime.now(_TZ)
     while True:
-        await _sleep_until_hour(_WINDOW_START_HOUR)
-        # Refresh repeatedly through 06:00→09:00 МСК so the previous day's OI is
-        # loaded well before 09:00 whenever the exchange publishes it.
-        while datetime.now(_TZ).hour < _DEADLINE_HOUR:
+        await asyncio.sleep(_POLL_SEC)
+        if _refresh_due(datetime.now(_TZ), last_run):
             await _safe_pass()
-            await asyncio.sleep(_WINDOW_RETRY_SEC)
-        # The morning window ends at 09:00, but the exchange occasionally
-        # publishes end-of-day results later — pick those up the same day
-        # instead of waiting for tomorrow's window.
-        await _sleep_until_hour(_DAYTIME_PASS_HOUR)
-        await _safe_pass()
+            last_run = datetime.now(_TZ)
 
 
 async def run_spb_oi_etl() -> None:

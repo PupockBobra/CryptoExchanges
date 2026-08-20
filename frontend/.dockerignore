@@ -1,0 +1,9 @@
+# Build context excludes. Both the dev and build stages do `COPY . .` AFTER the
+# base stage has run `npm ci`, so without this the host's node_modules would be
+# copied over the container's — and host binaries (esbuild/rollup are
+# platform-specific) break `npm run build` inside the linux image. Prod builds
+# only work today because the server checkout happens to have no node_modules.
+node_modules/
+dist/
+.vite/
+.DS_Store

@@ -7,6 +7,7 @@ const EXCHANGE_LABEL: Record<Exchange, string> = {
   bybit:       'Bybit',
   mexc:        'MEXC',
   hyperliquid: 'Hyperliquid',
+  bitget:      'Bitget',
   moex:        'MOEX FORTS',
 }
 

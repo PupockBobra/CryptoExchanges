@@ -40,5 +40,14 @@ def test_crypto_class_routing():
     assert _crypto_class("SAMSUNG/USDT:USDT") == "Korean market"
     assert _crypto_class("NVDA/USDT:USDT") == "US stocks"
     assert _crypto_class("BTC/USDT") == "Crypto"
+
+
+def test_crypto_class_routes_equity_perps_out_of_the_crypto_branch():
+    # Open-interest rows name stock perps like any other perp; only the stock
+    # ETL's ticker list can tell them apart from an altcoin.
+    equity = {"AVGO", "MRVL"}
+    assert _crypto_class("AVGO/USDT:USDT", equity) == "US stocks"
+    assert _crypto_class("AVGO/USDT:USDT") == "Crypto"          # without the list
+    assert _crypto_class("SOL/USDT", equity) == "Crypto"        # crypto stays crypto
     # bare equity-perp ticker (from stock_daily_volume) has no slash
     assert _crypto_class("AMD") == "US stocks"

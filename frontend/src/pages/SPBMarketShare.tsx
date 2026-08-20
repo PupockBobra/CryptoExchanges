@@ -17,11 +17,11 @@ const GROUP_COLORS: Record<string, string> = {
 }
 
 // Raw API row shapes.
-interface VolumeRow { date: string; date_label: string; ticker: string; name: string; group: string; turnover_rub: number }
-interface OiRow     { date: string; date_label: string; ticker: string; name: string; group: string; oi_contracts: number; oi_rub: number }
+export interface VolumeRow { date: string; date_label: string; ticker: string; name: string; group: string; turnover_rub: number }
+export interface OiRow     { date: string; date_label: string; ticker: string; name: string; group: string; oi_contracts: number; oi_rub: number }
 
 // Generic row consumed by the charts — one RUB value per (date, instrument).
-interface ShareRow { date: string; ticker: string; name: string; group: string; value: number }
+export interface ShareRow { date: string; ticker: string; name: string; group: string; value: number }
 
 function themeTokens(theme: 'dark' | 'light') {
   if (theme === 'light') return {
@@ -245,7 +245,8 @@ function ByGroup({ rows, theme, percent, metric }: { rows: ShareRow[]; theme: 'd
 }
 
 // A metric section = the 2×2 grid (instrument abs/%, group abs/%).
-function MetricSection({ rows, theme, metric, slug }: { rows: ShareRow[]; theme: 'dark' | 'light'; metric: string; slug: string }) {
+// Exported so the SPB Screenshot page can reuse the exact same grid.
+export function MetricSection({ rows, theme, metric, slug }: { rows: ShareRow[]; theme: 'dark' | 'light'; metric: string; slug: string }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8 }}>
       <div className="card analytics-card"><ByInstrument rows={rows} theme={theme} percent={false} metric={metric} exportName={`spb-${slug}-market-share-by-instrument.csv`} /></div>
@@ -267,19 +268,24 @@ export function SPBMarketShare() {
 
   const load = async () => {
     setLoading(true)
-    try {
-      const [vol, oi] = await Promise.all([
-        fetchJson<VolumeRow[]>(`${API}/daily-volume`),
-        fetchJson<OiRow[]>(`${API}/open-interest`),
-      ])
-      setVolRows(vol.map(r => ({ date: r.date, ticker: r.ticker, name: r.name, group: r.group, value: r.turnover_rub })))
-      setOiRows(oi.map(r => ({ date: r.date, ticker: r.ticker, name: r.name, group: r.group, value: r.oi_rub })))
-      setLastSync(new Date())
-    } catch (e) {
-      console.error('SPBMarketShare: failed to load market share', e)
-    } finally {
-      setLoading(false)
+    // allSettled: one failing feed must not blank the other (Volume and OI come
+    // from independent sources — Finam vs the exchange's own API).
+    const [vol, oi] = await Promise.allSettled([
+      fetchJson<VolumeRow[]>(`${API}/daily-volume`),
+      fetchJson<OiRow[]>(`${API}/open-interest`),
+    ])
+    if (vol.status === 'fulfilled') {
+      setVolRows(vol.value.map(r => ({ date: r.date, ticker: r.ticker, name: r.name, group: r.group, value: r.turnover_rub })))
+    } else {
+      console.error('SPBMarketShare: failed to load volume', vol.reason)
     }
+    if (oi.status === 'fulfilled') {
+      setOiRows(oi.value.map(r => ({ date: r.date, ticker: r.ticker, name: r.name, group: r.group, value: r.oi_rub })))
+    } else {
+      console.error('SPBMarketShare: failed to load open interest', oi.reason)
+    }
+    if (vol.status === 'fulfilled' || oi.status === 'fulfilled') setLastSync(new Date())
+    setLoading(false)
   }
 
   useEffect(() => { load() }, [])

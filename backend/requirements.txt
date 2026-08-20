@@ -17,3 +17,12 @@ aiohttp==3.13.5
 finam-sdk==2.17.0
 # Dev/test only — run with: docker compose exec backend python -m pytest
 pytest==9.1.1
+
+# Excel export of the MM-presence summary (GET /api/mmdetect/export.xlsx).
+# Pure Python, no system deps — the CSV export stays for anything scripted.
+openpyxl==3.1.5
+
+# MTProto client for the SPB funding auto-ingest from @beststocks_neo.
+# A *user* session is required: the Bot API cannot read a channel the bot isn't
+# an admin of.  See backend/app/spb/funding_tg.py.
+telethon==1.44.0

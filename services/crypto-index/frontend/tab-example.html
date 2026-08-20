@@ -1,0 +1,125 @@
+<!doctype html>
+<!--
+  ПРИМЕР нативной вкладки «Криптоиндекс» для трекера.
+  Это референс: возьми разметку/логику и перенеси в стиль трекера (свои классы, шрифты,
+  тема). Единственное, что нужно настроить, — API_BASE ниже.
+
+  Как работает:
+    - раз в 15с дёргает {API_BASE}/api/latest и рисует карточки по монетам;
+    - кнопки строят ссылки на {API_BASE}/api/index.csv, /api/ticks.csv, /api/db.
+
+  Полный контракт ответов — в API.md.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вкладка: Криптоиндекс</title>
+<style>
+  /* Нейтральные стили только для примера — замени на стили трекера. */
+  .ci-wrap { font: 14px/1.5 system-ui, sans-serif; max-width: 1000px; }
+  .ci-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .ci-head h2 { margin:0; font-size:18px; }
+  .ci-status { color:#888; font-size:12px; }
+  .ci-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .ci-card { border:1px solid #d8dbe0; border-radius:10px; padding:14px; }
+  .ci-coin { font-size:12px; color:#888; }
+  .ci-flag { font-size:10px; padding:1px 5px; border-radius:5px; margin-left:4px; }
+  .ci-flag.warn { background:#5a4a00; color:#ffd479; }
+  .ci-flag.bad  { background:#5a1616; color:#ff9d9d; }
+  .ci-val { font-size:24px; font-weight:600; margin:2px 0 8px; font-variant-numeric:tabular-nums; }
+  .ci-row { display:flex; justify-content:space-between; font-size:12px; color:#555;
+            font-variant-numeric:tabular-nums; padding:1px 0; }
+  .ci-tools { margin-top:18px; padding-top:14px; border-top:1px solid #eee; }
+  .ci-tools label { font-size:12px; color:#888; margin-right:4px; }
+  .ci-tools input, .ci-tools select { padding:5px 7px; margin-right:10px; }
+  .ci-btn { display:inline-block; padding:7px 12px; border-radius:8px; text-decoration:none;
+            background:#2b6cff; color:#fff; font-size:13px; margin:6px 8px 0 0; }
+  .ci-btn.sec { background:#e9edf5; color:#233; }
+  @media (prefers-color-scheme: dark) {
+    .ci-card { border-color:#2a2f3a; } .ci-row { color:#aab; } .ci-tools { border-color:#222; }
+    .ci-btn.sec { background:#2c313d; color:#dde; }
+  }
+</style>
+</head>
+<body>
+<div class="ci-wrap" id="ci-root">
+  <div class="ci-head">
+    <h2>Криптоиндекс (реплика методики MOEX)</h2>
+    <span class="ci-status" id="ci-status">загрузка…</span>
+  </div>
+  <div class="ci-grid" id="ci-grid"></div>
+
+  <div class="ci-tools">
+    <label>Монета</label>
+    <select id="ci-coin"><option value="">все</option>
+      <option>BTC</option><option>ETH</option><option>SOL</option>
+      <option>TRX</option><option>XRP</option></select>
+    <label>С (UTC)</label><input type="datetime-local" id="ci-from">
+    <label>По (UTC)</label><input type="datetime-local" id="ci-to">
+    <div>
+      <a class="ci-btn" id="ci-dl-index" href="#">Индекс + биржевые средние (CSV)</a>
+      <a class="ci-btn sec" id="ci-dl-ticks" href="#">Сырые цены 15с (CSV)</a>
+      <a class="ci-btn sec" id="ci-dl-db" href="#">Снимок базы (.db)</a>
+    </div>
+  </div>
+</div>
+
+<script>
+// ►►► НАСТРОЙ ЭТО: базовый путь к API репликатора.
+//   Сценарий A (reverse-proxy под тем же доменом):  "/crypto-index"
+//   Прямое обращение к сервису:                      "http://SERVER_IP:8787"
+//   Сценарий B (роуты в самом трекере):              путь к твоим роутам, напр. "/api/crypto-index"
+const API_BASE = "/crypto-index";
+
+const url = (p) => API_BASE + p;
+const fmt = (x, d=2) => x == null ? "—" :
+  Number(x).toLocaleString("en-US", {minimumFractionDigits:d, maximumFractionDigits:d});
+const W = { binance:"50%", bybit:"20%", okx:"15%", bitget:"15%" };
+
+async function ciTick() {
+  const st = document.getElementById("ci-status");
+  try {
+    const r = await fetch(url("/api/latest"), {cache:"no-store"});
+    const d = await r.json();
+    if (!d.ts) { st.textContent = "данных пока нет"; return; }
+    st.textContent = "обновлено " + d.iso;
+    document.getElementById("ci-grid").innerHTML = d.coins.map(c => {
+      const dp = c.index < 5 ? 4 : 2;
+      const line = (name) => `<div class="ci-row"><span>${name.toUpperCase()}
+        <small>${W[name]}</small></span><span>${fmt(c[name], dp)}</span></div>`;
+      // качество: ok/partial — норма, stale/missing — проблема
+      const bad = (c.flag !== "ok" && c.flag !== "PARTIAL_WINDOW");
+      const badge = c.flag === "ok" ? "" :
+        `<span class="ci-flag ${bad ? 'bad' : 'warn'}">${c.flag}`
+        + (c.missing_now && c.missing_now.length ? ": " + c.missing_now.join(",") : "")
+        + `</span>`;
+      return `<div class="ci-card">
+        <div class="ci-coin">${c.coin}/USDT · бирж: ${c.n_exchanges}/4 ${badge}</div>
+        <div class="ci-val">${fmt(c.index, dp)}</div>
+        ${line("binance")}${line("bybit")}${line("okx")}${line("bitget")}
+      </div>`;
+    }).join("");
+  } catch (e) { st.textContent = "ошибка связи с API"; }
+}
+
+const toUnix = (v) => v ? Math.floor(new Date(v + "Z").getTime()/1000) : "";
+function ciLinks() {
+  const coin = document.getElementById("ci-coin").value;
+  const f = toUnix(document.getElementById("ci-from").value);
+  const t = toUnix(document.getElementById("ci-to").value);
+  const q = (base) => {
+    const p = new URLSearchParams();
+    if (coin) p.set("coin", coin); if (f) p.set("from", f); if (t) p.set("to", t);
+    const s = p.toString(); return url(base) + (s ? "?" + s : "");
+  };
+  document.getElementById("ci-dl-index").href = q("/api/index.csv");
+  document.getElementById("ci-dl-ticks").href = q("/api/ticks.csv");
+  document.getElementById("ci-dl-db").href = url("/api/db");
+}
+["ci-coin","ci-from","ci-to"].forEach(id =>
+  document.getElementById(id).addEventListener("change", ciLinks));
+ciLinks(); ciTick(); setInterval(ciTick, 15000);
+</script>
+</body>
+</html>

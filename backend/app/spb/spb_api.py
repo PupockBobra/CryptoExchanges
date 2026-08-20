@@ -4,9 +4,13 @@ Client for СПБ Биржа's own public market-data API (https://spbexchange.r
 Unlike the Finam path, this is the exchange's first-party feed: no auth, no
 token, and it exposes exact daily turnover AND open interest per instrument.
 
-Only the daily-results endpoint is used here:
+Two endpoints are used:
 
     GET /im/v1/tradingResults/futuresDay/all?date=YYYY-MM-DD&page=0&size=500
+    GET /stream-service/v1/funding/indicativeFunding
+
+The first is the daily results feed (turnover + open interest), the second the
+funding feed that also drives the ticker on the exchange's home page.
 
 It is Spring-paginated (needs date + page + size, else 500) and returns one row
 per instrument × trading session.  СПБ runs three sessions a day — morning (2),
@@ -49,7 +53,7 @@ class SpbApiClient:
     async def __aexit__(self, *_exc) -> None:
         await self._http.aclose()
 
-    async def _get(self, path: str, params: dict, retries: int = 3) -> dict:
+    async def _get(self, path: str, params: dict, retries: int = 3) -> dict | list:
         delay = 1.0
         last_exc: Exception | None = None
         for attempt in range(retries):
@@ -79,3 +83,19 @@ class SpbApiClient:
         )
         content = data.get("content", []) if isinstance(data, dict) else []
         return [r for r in content if r.get("session") == _EOD_SESSION]
+
+    async def fetch_indicative_funding(self) -> list[dict]:
+        """
+        Funding for every perp, as broadcast on the exchange's home page.
+
+        One record per instrument (25 — exactly the app's SPB universe), with
+        ``fundingPerContract.value`` in USD per contract and the funding period
+        in ``instrumentApiDescription.periodStart/periodFinish``.
+
+        ⚠️ Only the *current* value is served: the settled figure is published
+        from 23:00 МСК (stock perps) / 00:00 (crypto index perps) until 11:30 the
+        next morning, and is zeroed outside that window.  There is no history
+        endpoint, so this cannot be backfilled — see app/spb/funding_exchange.py.
+        """
+        data = await self._get("/stream-service/v1/funding/indicativeFunding", params={})
+        return data if isinstance(data, list) else []

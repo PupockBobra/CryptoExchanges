@@ -20,6 +20,7 @@ so the loop never crashes the backend.
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.db.timescale import get_spb_latest_date, upsert_spb_daily_volume
@@ -35,15 +36,43 @@ _INITIAL_LOOKBACK_DAYS = 180
 # Gentle pacing between Finam calls — the API resets rapid sequential requests.
 _THROTTLE_SEC = 0.4
 
+# Wall-clock schedule (mirrors oi_etl): МСК time regardless of container clock.
+_TZ = ZoneInfo("Europe/Moscow")
+_WINDOW_START_HOUR = 6   # begin the morning refresh window at 06:00 МСК
+_DEADLINE_HOUR = 9       # data must be fresh by 09:00 МСК
+_POLL_SEC = 300              # re-check the wall clock this often
+_MORNING_REFRESH_SEC = 1800  # inside 06:00→09:00 МСК: refresh every 30 min
+_DAY_REFRESH_SEC = 3600      # rest of the day: hourly, so today's turnover grows continuously
+
+
+def _refresh_due(now: datetime, last_run: datetime) -> bool:
+    """30 min apart inside the 06:00→09:00 МСК window, hourly otherwise.
+
+    Wall-clock comparison (not a fixed sleep) recovers after a host suspend the
+    same way oi_etl does: on resume the elapsed gap exceeds the threshold and
+    the next poll fires a pass immediately.
+    """
+    in_morning_window = _WINDOW_START_HOUR <= now.hour < _DEADLINE_HOUR
+    threshold = _MORNING_REFRESH_SEC if in_morning_window else _DAY_REFRESH_SEC
+    return (now - last_run).total_seconds() >= threshold
+
 
 async def spb_etl_loop() -> None:
-    """Background task: run the ETL once at startup then every 6 h."""
+    """Background task: run the ETL at startup, then on the wall-clock schedule."""
+    await _safe_pass()
+    last_run = datetime.now(_TZ)
     while True:
-        try:
-            await run_spb_etl()
-        except Exception as exc:  # noqa: BLE001 — the loop must never die
-            log.warning("SPB ETL: loop iteration failed: %s", exc)
-        await asyncio.sleep(21_600)
+        await asyncio.sleep(_POLL_SEC)
+        if _refresh_due(datetime.now(_TZ), last_run):
+            await _safe_pass()
+            last_run = datetime.now(_TZ)
+
+
+async def _safe_pass() -> None:
+    try:
+        await run_spb_etl()
+    except Exception as exc:  # noqa: BLE001 — the loop must never die
+        log.warning("SPB ETL: loop iteration failed: %s", exc)
 
 
 async def run_spb_etl() -> None:
@@ -73,6 +102,27 @@ def _from_date(latest) -> date:
     return latest - timedelta(days=_LOOKBACK_DAYS)
 
 
+def _current_trading_day(bars: list[dict], fallback: date) -> date:
+    """The running SPB trading day = the latest daily bar's date.
+
+    The live quote's cumulative volume/turnover belongs to the current SPB
+    session, whose bar rolls at 04:00 UTC (07:00 МСК).  Anchoring to the latest
+    bar date (rather than ``date.today()`` in UTC) keeps the current-day quote on
+    the right calendar day during the 00:00–04:00 UTC window, when the UTC date
+    has already advanced but the session — and the quote — still belong to the
+    previous day.  Falls back to ``fallback`` when no bars are available.
+    """
+    latest: date | None = None
+    for b in bars:
+        ts = b.get("timestamp")
+        if not ts:
+            continue
+        d = datetime.fromisoformat(ts.replace("Z", "+00:00")).date()
+        if latest is None or d > latest:
+            latest = d
+    return latest or fallback
+
+
 async def _refresh_ticker(client: FinamClient, ticker: str) -> None:
     latest = await get_spb_latest_date(ticker)
     from_dt = _from_date(latest)
@@ -96,12 +146,19 @@ async def _refresh_ticker(client: FinamClient, ticker: str) -> None:
         typical = (high + low + close) / 3 if high > 0 and low > 0 else close
         rows[d] = (d, ticker, round(vol, 2), round(vol * typical * lot, 2))
 
-    # Current day: overwrite with the exact live turnover, if the quote reports any.
+    # Current trading day: overwrite with the exact live turnover, if the quote
+    # reports any.  Stamp it to the latest bar's date — the running SPB session
+    # the quote's cumulative belongs to — NOT date.today().  The SPB perp trading
+    # day rolls at 04:00 UTC (07:00 МСК), so between 00:00–04:00 UTC the UTC date
+    # is already the next calendar day while the live quote still reports the
+    # previous session's near-full cumulative; writing that under date.today()
+    # booked ~a full previous day onto the new date (12× the real partial).
     await asyncio.sleep(_THROTTLE_SEC)
     quote = await client.fetch_latest_quote(ticker)
     q_turn = num_value(quote, "turnover")
+    current_day = _current_trading_day(bars, today)
     if q_turn > 0:
-        rows[today] = (today, ticker, round(num_value(quote, "volume"), 2), round(q_turn, 2))
+        rows[current_day] = (current_day, ticker, round(num_value(quote, "volume"), 2), round(q_turn, 2))
 
     n = await upsert_spb_daily_volume(list(rows.values()))
     log.info("SPB ETL: %s upserted %d rows (from %s)", ticker, n, from_dt)

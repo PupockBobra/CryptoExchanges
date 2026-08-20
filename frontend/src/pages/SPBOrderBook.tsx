@@ -1,135 +1,210 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play } from 'lucide-react'
+import Plotly from 'plotly.js-dist-min'
 import { SectionHeading } from '../components/SectionHeading'
+import { useTheme } from '../hooks/useTheme'
 import { fetchJson } from '../utils/api'
+import {
+  type Book,
+  LiveBook, stripClosedDays, tradingBreaks, tradingTicks, spreadTheme,
+  FONT_FAMILY, SPREAD_PLOTLY_CONFIG,
+} from '../components/OrderBookViz'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/spb'
 
 // Section order on the page; tickers carry their group from the backend.
 const GROUP_ORDER = ['US Market', 'Crypto']
 
-// How many levels to render per side (the backend caps the payload at 12).
-const DISPLAY_DEPTH = 8
-
 // Poll cadence for the warm backend cache.  The backend keeps books via the
 // Finam gRPC stream (tick-by-tick deltas), so the cache changes continuously —
 // 1 s polling gives a terminal-style feed without flooding the API.
 const POLL_MS = 1000
 
-interface Level { price: number; size: number }
-interface Book {
+// Spread-on-volume history — completed 15-min buckets, collected by the backend
+// during trading hours.  A new point appears at most every 15 min and the 7-day
+// payload is ~1.3 MB, so reloading every couple of minutes is prompt enough.
+const SPREAD_REFRESH_MS = 120 * 1000
+
+const SPREAD_1M_COLOR  = '#3b82f6'   // SPB (1 млн ₽/сторона)
+const MOEX_COLOR       = '#ef4444'   // MOEX crypto-futures overlay
+
+// The API returns each series COLUMNAR — parallel arrays rather than a list of
+// point objects — because that is what Plotly consumes and repeating four field
+// names per 15-min bucket was most of the payload.
+export interface SpreadColumns {
+  buckets:    string[]            // ISO timestamps (15-min buckets)
+  spread_usd: (number | null)[]   // absolute spread = P_aver_ask − P_aver_bid ($)
+  spread_pct: (number | null)[]   // absolute / top-of-book mid × 100
+}
+export interface SpreadSeries extends SpreadColumns {
   ticker: string
   name:   string
   group:  string
-  bids:   Level[]   // sorted best (highest) first
-  asks:   Level[]   // sorted best (lowest) first
-  error:  string | null
+  moex:   SpreadColumns | null    // present for the 5 crypto tickers
 }
 
-function fmtPrice(p: number): string {
-  return p.toLocaleString('en-US', { maximumFractionDigits: p >= 100 ? 2 : 4 })
+// Two units for the same metric.  The depth target (1 млн ₽ per side) is the
+// same in both charts — only the spread's unit differs: absolute $ (raw VWAP
+// price gap) vs basis points.  The API stores/returns percent; ×100 → б.п.
+type SpreadMetric = 'usd' | 'pct'
+const toBps = (pct: number | null) => (pct == null ? null : pct * 100)
+const SPREAD_METRICS: Record<SpreadMetric, {
+  title:  string
+  yaxis:  Partial<Plotly.LayoutAxis>
+  hover1: string
+}> = {
+  usd: {
+    title: 'Спред, $',
+    // exponentformat 'none' kills Plotly's SI prefixes (e.g. "$200µ" for TRX,
+    // whose spread is ~0.0003 $) → show plain decimals like "$0.0002".
+    yaxis: { tickprefix: '$', hoverformat: ',.5f', exponentformat: 'none' },
+    hover1:  '$%{y:.5f}<extra></extra>',
+  },
+  pct: {
+    title: 'Спред, б.п.',
+    yaxis: { ticksuffix: ' б.п.', hoverformat: ',.2f' },
+    hover1:  '%{y:.2f} б.п.<extra></extra>',
+  },
 }
 
-function fmtSize(s: number): string {
-  return s.toLocaleString('en-US', { maximumFractionDigits: 4 })
-}
+const EMPTY: (number | null)[] = []
+const valuesOf = (s: SpreadColumns | null | undefined, metric: SpreadMetric) =>
+  !s ? EMPTY : metric === 'usd' ? s.spread_usd : s.spread_pct.map(toBps)
 
-function OrderBookCard({ book }: { book: Book }) {
-  const asks = book.asks.slice(0, DISPLAY_DEPTH)
-  const bids = book.bids.slice(0, DISPLAY_DEPTH)
+// Spread-on-volume history: SPB line (1 млн ₽ depth per side), 15-min buckets,
+// plus an optional MOEX crypto-futures line (same methodology) for the 5 crypto
+// cards.  Gaps (no trading at night / illiquid) are bridged (`connectgaps`).
+export function SpreadChart({ series, moex, metric }: {
+  series?: SpreadColumns; moex?: SpreadColumns | null; metric: SpreadMetric
+}) {
+  const divRef = useRef<HTMLDivElement>(null)
+  const theme  = useTheme()
+  const cfg    = SPREAD_METRICS[metric]
 
-  const bestAsk = asks[0]?.price
-  const bestBid = bids[0]?.price
-  const spread  = bestAsk != null && bestBid != null ? bestAsk - bestBid : null
-  const mid     = bestAsk != null && bestBid != null ? (bestAsk + bestBid) / 2 : null
-  const spreadPct = spread != null && mid ? (spread / mid) * 100 : null
+  const spb  = stripClosedDays(series?.buckets ?? [], valuesOf(series, metric))
+  const mx   = stripClosedDays(moex?.buckets ?? [], valuesOf(moex, metric))
+  const hasSpb  = spb.y.some(v => v != null)
+  const hasMoex = mx.y.some(v => v != null)
+  const hasAny  = hasSpb || hasMoex
 
-  // Depth-bar scale — widest bar = largest resting size across both sides.
-  const maxSize = Math.max(1, ...asks.map(a => a.size), ...bids.map(b => b.size))
-
-  // Flash a level whose price is new or whose size changed since the last poll
-  // (terminal-style): bid updates blink green, ask updates blink red.  Levels
-  // are keyed by price+size, so a change remounts the row and replays the CSS
-  // animation.  The ref holds the previous snapshot, updated after each commit.
-  const prevRef = useRef<Map<string, number>>(new Map())
-  const changed = (side: 'ask' | 'bid', price: number, size: number): boolean => {
-    if (prevRef.current.size === 0) return false        // first fill — don't flash everything
-    const prev = prevRef.current.get(`${side}:${price}`)
-    return prev === undefined || prev !== size          // new level, or size changed
-  }
   useEffect(() => {
-    const m = new Map<string, number>()
-    for (const b of bids) m.set(`bid:${b.price}`, b.size)
-    for (const a of asks) m.set(`ask:${a.price}`, a.size)
-    prevRef.current = m
-  }, [book])
+    if (!divRef.current || !hasAny) return
+    const t = spreadTheme(theme)
 
-  const rowStyle: React.CSSProperties = {
-    position: 'relative', display: 'flex', justifyContent: 'space-between',
-    padding: '2px 8px', fontSize: 12, fontVariantNumeric: 'tabular-nums',
-    lineHeight: 1.5,
-  }
+    const traces: Plotly.Data[] = [
+      {
+        type: 'scatter', mode: 'lines+markers', name: hasMoex ? 'SPB' : '1 млн ₽',
+        x: spb.x, y: spb.y, connectgaps: true,
+        line: { color: SPREAD_1M_COLOR, width: 1.6 }, marker: { size: 3 },
+        hovertemplate: `SPB ${cfg.hover1}`,
+      },
+    ]
+    if (hasMoex && moex) {
+      traces.push({
+        type: 'scatter', mode: 'lines+markers', name: 'MOEX',
+        x: mx.x, y: mx.y, connectgaps: true,
+        line: { color: MOEX_COLOR, width: 1.6 }, marker: { size: 3 },
+        hovertemplate: `MOEX ${cfg.hover1}`,
+      })
+    }
 
-  const Level = ({ lvl, side, flash }: { lvl: Level; side: 'ask' | 'bid'; flash: boolean }) => {
-    const color = side === 'ask' ? '#ef4444' : '#22c55e'
-    const bar   = side === 'ask' ? 'rgba(239,68,68,.14)' : 'rgba(34,197,94,.14)'
+    const xsAll = [...(series?.buckets ?? []), ...(moex?.buckets ?? [])]
+    const xBreaks = tradingBreaks(xsAll)
+    const xTicks  = tradingTicks(xsAll)
+
+    const layout: Partial<Plotly.Layout> = {
+      paper_bgcolor: t.paper, plot_bgcolor: t.bg,
+      margin: { l: 54, r: 10, t: 28, b: 34 },
+      showlegend: hasMoex,
+      legend: { orientation: 'h', x: 0, y: 1.14, font: { color: t.text, size: 10, family: FONT_FAMILY } },
+      xaxis: {
+        type: 'date', tickfont: { color: t.text, size: 9, family: FONT_FAMILY },
+        gridcolor: t.grid, linecolor: t.grid, showgrid: false,
+        rangebreaks: xBreaks,
+        ...(xTicks
+          ? { tickmode: 'array' as const, tickvals: xTicks.tickvals, ticktext: xTicks.ticktext }
+          : { nticks: 5 }),
+      },
+      yaxis: {
+        title: { text: cfg.title, font: { color: t.text, size: 10, family: FONT_FAMILY }, standoff: 10 },
+        automargin: true, tickfont: { color: t.text, size: 9, family: FONT_FAMILY },
+        gridcolor: t.grid, linecolor: t.grid, rangemode: 'tozero', ...cfg.yaxis,
+      },
+      hoverlabel: { bgcolor: t.hover, bordercolor: t.hoverBorder, font: { color: t.hoverText, size: 11, family: FONT_FAMILY } },
+      hovermode: 'x unified',
+    }
+
+    void Plotly.react(divRef.current, traces, layout, SPREAD_PLOTLY_CONFIG)
+  }, [series, moex, theme, hasAny, metric])
+
+  useEffect(() => {
+    const el = divRef.current
+    return () => { if (el) Plotly.purge(el) }
+  }, [])
+
+  if (!hasAny) {
     return (
-      <div style={rowStyle} className={flash ? (side === 'ask' ? 'ob-flash-ask' : 'ob-flash-bid') : undefined}>
-        <div style={{
-          position: 'absolute', top: 0, bottom: 0, right: 0,
-          width: `${(lvl.size / maxSize) * 100}%`, background: bar,
-        }} />
-        <span style={{ position: 'relative', color, fontWeight: 600 }}>{fmtPrice(lvl.price)}</span>
-        <span style={{ position: 'relative', color: 'var(--muted)' }}>{fmtSize(lvl.size)}</span>
+      <div style={{ height: 340, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: 12 }}>
+        нет данных о спреде<br />(копится / нет ликвидности на V)
       </div>
     )
   }
+  return <div ref={divRef} style={{ width: '100%', height: 340 }} />
+}
+
+// Small uppercase column label above each order book / chart pair.
+const COL_HEAD: React.CSSProperties = {
+  fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
+  color: 'var(--muted)', padding: '5px 8px', borderBottom: '1px solid var(--border)',
+}
+
+export function OrderBookCard({ book, spreadHistory, moexHistory, moexBook }: {
+  book: Book; spreadHistory?: SpreadColumns; moexHistory?: SpreadColumns | null; moexBook?: Book
+}) {
+  // Crypto cards get a 4th column (MOEX book): [SPB book | chart ₽ | chart % | MOEX book].
+  const cols = moexBook
+    ? 'minmax(190px, 250px) 1fr minmax(190px, 250px)'
+    : 'minmax(220px, 290px) 1fr'
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{
         padding: '10px 12px', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'baseline',
       }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{book.name}</span>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{book.ticker}</span>
       </div>
 
-      {asks.length === 0 && bids.length === 0 ? (
-        <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--muted)' }}>
-          {book.error
-            ? (book.error.includes('429') ? 'превышен лимит запросов Finam, повтор…' : 'нет данных')
-            : 'загрузка…'}
+      <div style={{ display: 'grid', gridTemplateColumns: cols, alignItems: 'stretch' }}>
+        {/* Live SPB order book */}
+        <div style={{ borderRight: '1px solid var(--border)' }}>
+          <div style={{ ...COL_HEAD, color: SPREAD_1M_COLOR }}>SPB</div>
+          <LiveBook book={book} />
         </div>
-      ) : (
-        <div style={{ padding: '6px 0' }}>
-          {/* asks: highest at top, best ask adjacent to the spread */}
-          {[...asks].reverse().map(lvl => (
-            <Level key={`a-${lvl.price}-${lvl.size}`} lvl={lvl} side="ask" flash={changed('ask', lvl.price, lvl.size)} />
-          ))}
 
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '4px 8px', margin: '2px 0',
-            borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
-            fontSize: 11, color: 'var(--muted)',
-          }}>
-            <span>{mid != null ? fmtPrice(mid) : '—'}</span>
-            <span>{spreadPct != null ? `spread ${spreadPct.toFixed(2)}%` : ''}</span>
+        {/* Spread-on-volume history (15-min buckets), ₽ and % */}
+        <div style={{ padding: '6px 6px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <SpreadChart series={spreadHistory} moex={moexHistory} metric="usd" />
+          <SpreadChart series={spreadHistory} moex={moexHistory} metric="pct" />
+        </div>
+
+        {/* Live MOEX order book (crypto cards only) */}
+        {moexBook && (
+          <div style={{ borderLeft: '1px solid var(--border)' }}>
+            <div style={{ ...COL_HEAD, color: MOEX_COLOR }}>MOEX</div>
+            <LiveBook book={moexBook} />
           </div>
-
-          {/* bids: best bid adjacent to the spread, then downwards */}
-          {bids.map(lvl => (
-            <Level key={`b-${lvl.price}-${lvl.size}`} lvl={lvl} side="bid" flash={changed('bid', lvl.price, lvl.size)} />
-          ))}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
 export function SPBOrderBook() {
-  const [books,    setBooks]    = useState<Book[]>([])
+  const [books,      setBooks]      = useState<Book[]>([])
+  const [moexBooks,  setMoexBooks]  = useState<Map<string, Book>>(new Map())
+  const [spread,     setSpread]     = useState<Map<string, SpreadSeries>>(new Map())
   const [loading,  setLoading]  = useState(true)
   const [live,     setLive]     = useState(true)
   const [lastSync, setLastSync] = useState<Date | null>(null)
@@ -140,11 +215,13 @@ export function SPBOrderBook() {
     inFlight.current = true
     if (initial) setLoading(true)
     try {
-      const data = await fetchJson<Book[]>(`${API}/orderbook`)
-      setBooks(data)
-      setLastSync(new Date())
-    } catch (e) {
-      console.error('SPBOrderBook: failed to load order books', e)
+      const [sp, mo] = await Promise.allSettled([
+        fetchJson<Book[]>(`${API}/orderbook`),
+        fetchJson<Book[]>(`${API}/moex-orderbook`),
+      ])
+      if (sp.status === 'fulfilled') { setBooks(sp.value); setLastSync(new Date()) }
+      else console.error('SPBOrderBook: failed to load order books', sp.reason)
+      if (mo.status === 'fulfilled') setMoexBooks(new Map(mo.value.map(b => [b.ticker, b])))
     } finally {
       inFlight.current = false
       if (initial) setLoading(false)
@@ -159,6 +236,21 @@ export function SPBOrderBook() {
     const id = setInterval(() => load(false), POLL_MS)
     return () => clearInterval(id)
   }, [live])
+
+  // Spread-on-volume history — changes only every 15 min, so reload slowly.
+  useEffect(() => {
+    const loadSpread = async () => {
+      try {
+        const data = await fetchJson<SpreadSeries[]>(`${API}/spread-history?days=7`)
+        setSpread(new Map(data.map(s => [s.ticker, s])))
+      } catch (e) {
+        console.error('SPBOrderBook: failed to load spread history', e)
+      }
+    }
+    loadSpread()
+    const id = setInterval(loadSpread, SPREAD_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [])
 
   const byGroup = useMemo(() => {
     const m = new Map<string, Book[]>()
@@ -196,22 +288,22 @@ export function SPBOrderBook() {
         </button>
       </div>
 
-      <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-        <div style={{ padding: '12px 20px 12px 16px', borderRight: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
-            Страница показывает
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Стакан заявок вечных фьючерсов СПБ Биржи по каждому инструменту, обновляется непрерывно, пока открыта страница.
-          </div>
+      <div className="card" style={{
+        marginBottom: 16, padding: '12px 16px', fontSize: 12.5,
+        color: 'var(--text)', lineHeight: 1.6,
+      }}>
+        Спред считается на объём <b>1 млн ₽ по каждой стороне</b> (1 млн ₽ на bid и
+        1 млн ₽ на ask), с проходом по стакану. Два графика на карточку:
+        <div style={{ marginTop: 6 }}>
+          • <b>Спред, $</b> — абсолютный спред в долларах (разница средних цен
+          исполнения P_ср(ask) − P_ср(bid));
+          &nbsp;• <b>Спред, б.п.</b> — тот же спред, делённый на середину лучших котировок,
+          в базисных пунктах (1 б.п. = 0.01%).
         </div>
-        <div style={{ padding: '12px 16px 12px 20px' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 6 }}>
-            Единицы
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Цена — в долларах США (валюта котировки), объём — в контрактах. Красное — предложение (ask), зелёное — спрос (bid).
-          </div>
+        <div style={{ marginTop: 6 }}>
+          <span style={{ color: SPREAD_1M_COLOR, fontWeight: 600 }}>■ SPB</span> — СПБ Биржа;{' '}
+          <span style={{ color: MOEX_COLOR, fontWeight: 600 }}>■ MOEX</span> — фьючерс на криптоиндекс MOEX
+          (только у крипто-инструментов).
         </div>
       </div>
 
@@ -227,8 +319,13 @@ export function SPBOrderBook() {
             return (
               <div key={group}>
                 <SectionHeading label={group} />
-                <div className="analytics-grid">
-                  {groupBooks.map(b => <OrderBookCard key={b.ticker} book={b} />)}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {groupBooks.map(b => (
+                    <OrderBookCard key={b.ticker} book={b}
+                      spreadHistory={spread.get(b.ticker)}
+                      moexHistory={spread.get(b.ticker)?.moex}
+                      moexBook={moexBooks.get(b.ticker)} />
+                  ))}
                 </div>
               </div>
             )

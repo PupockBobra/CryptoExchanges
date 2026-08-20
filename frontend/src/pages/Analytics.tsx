@@ -19,6 +19,8 @@ import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
 import { exportWeeklyCsv } from '../utils/exportCsv'
 import { fetchJson } from '../utils/api'
+import { pickUnit, maxStackedTotal } from '../utils/scale'
+import { sortSymbolsByValue } from '../utils/rank'
 
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
@@ -140,14 +142,14 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
   useEffect(() => {
     if (!divRef.current || !rows.length) return
 
-    const section = classifySymbol(symbol)
-
     // Collect ordered list of week starts (X axis), label as date range
     const weekStarts = Array.from(new Set(rows.map((r) => r.week_start))).sort()
     const labels = weekStarts.map(weekRangeLabel)
 
-    const scale  = section === 'Korean Market' ? 1e6 : 1e9
-    const suffix = section === 'Korean Market' ? 'M'  : 'B'
+    // Unit follows this instrument's own scale — see utils/scale.ts
+    const { scale, suffix } = pickUnit(
+      maxStackedTotal(rows.map((r) => ({ key: r.week_start, value: r.adtv }))),
+    )
 
     // Include MOEX only when this symbol actually has MOEX data (e.g. metals,
     // commodities, and the NASD/SPYF index futures mapped to QQQ/SPY) — so US
@@ -230,14 +232,21 @@ function WeeklyAdtvChart({ symbol, rows }: ChartProps) {
 
 export function Analytics() {
   const [allRows,   setAllRows]   = useState<WeeklyRow[]>([])
+  const [usStocks,  setUsStocks]  = useState<Set<string>>(new Set())
   const [loading,   setLoading]   = useState(true)
   const [lastSync,  setLastSync]  = useState<Date | null>(null)
 
   const load = async () => {
     setLoading(true)
     try {
-      const data = await fetchJson<WeeklyRow[]>(`${API}/weekly-adtv`)
+      // The US Market section is the top-N equity perps by weekly turnover — the
+      // set rotates, so the backend names it (see /api/history/us-stock-tickers).
+      const [data, stocks] = await Promise.all([
+        fetchJson<WeeklyRow[]>(`${API}/weekly-adtv`),
+        fetchJson<{ tickers: string[] }>(`${API}/us-stock-tickers`),
+      ])
       setAllRows(data)
+      setUsStocks(new Set(stocks.tickers))
       setLastSync(new Date())
     } catch (e) {
       console.error('Analytics: failed to load weekly ADTV', e)
@@ -250,8 +259,9 @@ export function Analytics() {
 
   // Distinct ordered symbols and per-symbol row index — memoize so we don't
   // re-scan allRows on every render or for every chart card.
+  // Ranked by YTD turnover, biggest first — not alphabetically.
   const symbols = useMemo(
-    () => Array.from(new Set(allRows.map((r) => r.symbol))).sort(),
+    () => sortSymbolsByValue(allRows, (r) => r.symbol, (r) => r.adtv * r.days_in_week),
     [allRows],
   )
   const rowsBySymbol = useMemo(() => {
@@ -286,7 +296,7 @@ export function Analytics() {
 
       {/* ── Exchange source badges ── */}
       <ExchangeSourceBadges
-        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']}
+        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'bitget', 'moex']}
       />
 
       <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
@@ -303,7 +313,7 @@ export function Analytics() {
             Единица измерения
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Korean Market — ₽M (миллионы рублей), все остальные — ₽B (миллиарды рублей).
+            Рубли. Единица подбирается под каждый инструмент: ₽K / ₽M / ₽B / ₽T — по самой высокой неделе на графике. Секция US Market — 10 крупнейших акций по обороту за прошлую неделю.
           </div>
         </div>
       </div>
@@ -317,7 +327,7 @@ export function Analytics() {
         <>
           {SYMBOL_SECTIONS.map(({ label }) => {
             const sectionSyms = symbols.filter(
-              (s) => classifySymbol(s) === (label as SymbolSection),
+              (s) => classifySymbol(s, usStocks) === (label as SymbolSection),
             )
             if (!sectionSyms.length) return null
             return (

@@ -8,6 +8,8 @@ import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
 import { exportDailyCsv } from '../utils/exportCsv'
 import { fetchJson } from '../utils/api'
+import { pickUnit, maxStackedTotal } from '../utils/scale'
+import { sortSymbolsByValue } from '../utils/rank'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
 
@@ -82,7 +84,6 @@ interface ChartProps { symbol: string; rows: DailyRow[] }
 function DailyVolumeChart({ symbol, rows }: ChartProps) {
   const divRef = useRef<HTMLDivElement>(null)
   const theme  = useTheme()
-  const section = classifySymbol(symbol)
 
   useEffect(() => {
     if (!divRef.current || !rows.length) return
@@ -93,8 +94,10 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     })
 
-    const scale  = section === 'Korean Market' ? 1e6 : 1e9
-    const suffix = section === 'Korean Market' ? 'M'  : 'B'
+    // Unit follows this instrument's own scale — see utils/scale.ts
+    const { scale, suffix } = pickUnit(
+      maxStackedTotal(rows.map(r => ({ key: r.date, value: r.volume_rub }))),
+    )
 
     // Include MOEX only when this symbol actually has MOEX data (metals,
     // commodities, and the NASD/SPYF index futures mapped to QQQ/SPY).
@@ -124,7 +127,7 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
     }
 
     Plotly.react(divRef.current, traces, layout, PLOTLY_CONFIG)
-  }, [symbol, rows, theme, section])
+  }, [symbol, rows, theme])
 
   useEffect(() => {
     const el = divRef.current
@@ -164,14 +167,20 @@ function DailyVolumeChart({ symbol, rows }: ChartProps) {
 
 export function DailyVolume() {
   const [allRows, setAllRows] = useState<DailyRow[]>([])
+  const [usStocks, setUsStocks] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [lastSync, setLastSync] = useState<Date | null>(null)
 
   const load = async () => {
     setLoading(true)
     try {
-      const data = await fetchJson<DailyRow[]>(`${API}/daily-volume`)
+      // US Market = top-N equity perps by weekly turnover, named by the backend.
+      const [data, stocks] = await Promise.all([
+        fetchJson<DailyRow[]>(`${API}/daily-volume`),
+        fetchJson<{ tickers: string[] }>(`${API}/us-stock-tickers`),
+      ])
       setAllRows(data)
+      setUsStocks(new Set(stocks.tickers))
       setLastSync(new Date())
     } catch (e) {
       console.error('DailyVolume: failed to load daily volume', e)
@@ -182,8 +191,9 @@ export function DailyVolume() {
 
   useEffect(() => { load() }, [])
 
+  // Ranked by 30-day turnover, biggest first — not alphabetically.
   const symbols = useMemo(
-    () => Array.from(new Set(allRows.map(r => r.symbol))).sort(),
+    () => sortSymbolsByValue(allRows, r => r.symbol, r => r.volume_rub),
     [allRows],
   )
   const rowsBySymbol = useMemo(() => {
@@ -215,7 +225,7 @@ export function DailyVolume() {
       </div>
 
       <ExchangeSourceBadges
-        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'moex']}
+        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'bitget', 'moex']}
       />
 
       <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
@@ -232,7 +242,7 @@ export function DailyVolume() {
             Единица измерения
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Korean Market — ₽M (миллионы рублей), все остальные — ₽B (миллиарды рублей).
+            Рубли. Единица подбирается под каждый инструмент: ₽K / ₽M / ₽B / ₽T — по самому объёмному дню на графике. Секция US Market — 10 крупнейших акций по обороту за прошлую неделю.
           </div>
         </div>
       </div>
@@ -244,7 +254,7 @@ export function DailyVolume() {
       ) : (
         <>
           {SYMBOL_SECTIONS.map(({ label }) => {
-            const sectionSyms = symbols.filter(s => classifySymbol(s) === (label as SymbolSection))
+            const sectionSyms = symbols.filter(s => classifySymbol(s, usStocks) === (label as SymbolSection))
             if (!sectionSyms.length) return null
             return (
               <div key={label}>

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, TrendingUp, TrendingDown, Download } from 'lucide-react'
-import { EXCHANGE_COLORS } from '../types'
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
+import { RefreshCw, Download, Flame } from 'lucide-react'
+import { EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
+import type { SymbolSection } from '../types'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/funding'
 
@@ -16,21 +17,6 @@ interface RateEntry {
   next_funding_time:        string | null
   interval_hours:           number
   updated_at:               string
-}
-
-interface SpreadEntry {
-  symbol:            string
-  long_exchange:     string
-  short_exchange:    string
-  long_rate:         number
-  long_rate_ann:     number
-  short_rate:        number
-  short_rate_ann:    number
-  spread:            number
-  annualized_pct:    number
-  interval_hours:    number
-  next_funding_time: string | null
-  all_rates:         { exchange: string; rate: number; annualized_pct: number }[]
 }
 
 interface HistoryPoint {
@@ -201,62 +187,213 @@ function RatesMatrix({ rates }: { rates: RateEntry[] }) {
   )
 }
 
-// ── Spreads table ──────────────────────────────────────────────────────────────
+// ── Funding heatmap (instruments × dates) ─────────────────────────────────────
+//
+// Same layout as the SPB funding page: one row per instrument, one column per
+// day, colour by value.  Crypto funding settles several times a day on several
+// venues, so a cell is either one venue's day or the average across venues.
 
-function SpreadsTable({ spreads }: { spreads: SpreadEntry[] }) {
-  if (!spreads.length) return <p className="empty">No spread opportunities found yet</p>
+interface HeatRow {
+  date:     string
+  symbol:   string
+  exchange: string
+  pct_day:  number
+  pct_year: number | null
+}
+
+type HeatMetric = 'pct_day' | 'pct_year'
+
+/** 90th percentile of |values| — a couple of outliers must not wash out the scale. */
+function clipScale(vals: number[]): number {
+  const abs = vals.filter(v => Number.isFinite(v)).map(Math.abs).sort((a, b) => a - b)
+  if (!abs.length) return 1
+  const p = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.9))]
+  return p > 0 ? p : (abs[abs.length - 1] || 1)
+}
+
+/** Green = longs get paid (negative funding), red = longs pay. */
+function heatBg(v: number | null, scale: number): string {
+  if (v == null) return 'transparent'
+  const t = Math.max(-1, Math.min(1, v / scale))
+  const a = (Math.abs(t) * 0.5).toFixed(3)
+  return t >= 0 ? `rgba(239,68,68,${a})` : `rgba(16,185,129,${a})`
+}
+
+function heatDateLabel(iso: string): string {
+  const [, m, d] = iso.split('-')
+  return `${d}.${m}`
+}
+
+function FundingHeatmap() {
+  const [rows,     setRows]     = useState<HeatRow[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [days,     setDays]     = useState(30)
+  const [metric,   setMetric]   = useState<HeatMetric>('pct_day')
+  const [exchange, setExchange] = useState('')      // '' = average across venues
+  const [heatmap,  setHeatmap]  = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch(`${API}/heatmap?days=${days}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setRows(d.rows ?? []) })
+      .catch(() => { /* keep the previous grid on a transient error */ })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [days])
+
+  const exchanges = useMemo(
+    () => [...new Set(rows.map(r => r.exchange))].sort(),
+    [rows],
+  )
+  const dates = useMemo(
+    () => [...new Set(rows.map(r => r.date))].sort(),
+    [rows],
+  )
+
+  // (symbol,date) → value: one venue, or the mean across the venues that settled.
+  const cell = useMemo(() => {
+    const acc = new Map<string, { sum: number; n: number }>()
+    for (const r of rows) {
+      if (exchange && r.exchange !== exchange) continue
+      const v = metric === 'pct_day' ? r.pct_day : r.pct_year
+      if (v == null) continue
+      const key = `${r.symbol}|${r.date}`
+      const cur = acc.get(key)
+      if (cur) { cur.sum += v; cur.n += 1 } else { acc.set(key, { sum: v, n: 1 }) }
+    }
+    const out = new Map<string, number>()
+    for (const [k, { sum, n }] of acc) out.set(k, sum / n)
+    return out
+  }, [rows, metric, exchange])
+
+  const symbols = useMemo(() => {
+    const seen = new Set<string>()
+    for (const r of rows) if (!exchange || r.exchange === exchange) seen.add(r.symbol)
+    return [...seen].sort()
+  }, [rows, exchange])
+
+  const scale = useMemo(() => clipScale([...cell.values()]), [cell])
+
+  const fmtCell = (v: number) => metric === 'pct_day' ? v.toFixed(4) : v.toFixed(1)
+
+  const exportCsv = () => {
+    const head = ['symbol', 'section', ...dates.map(heatDateLabel)]
+    const lines = [head.join(',')]
+    for (const sym of symbols) {
+      const vals = dates.map(d => { const v = cell.get(`${sym}|${d}`); return v == null ? '' : String(v) })
+      lines.push([sym, classifySymbol(sym), ...vals].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `funding-heatmap-${metric}-${days}d.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const hasData = symbols.length > 0 && dates.length > 0
+
   return (
-    <div className="fr-table-wrap">
-      <table className="fr-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Symbol</th>
-            <th>Long on</th>
-            <th>Short on</th>
-            <th>Long rate</th>
-            <th>Short rate</th>
-            <th>Spread</th>
-            <th>Annual yield</th>
-            <th>Next funding</th>
-          </tr>
-        </thead>
-        <tbody>
-          {spreads.map((s, i) => (
-            <tr key={`${s.symbol}-${i}`}>
-              <td className="fr-rank">{i + 1}</td>
-              <td className="fr-sym">{s.symbol.replace('/USDT:USDT', '')}</td>
-              <td>
-                <span className="fr-ex-badge fr-ex-long">
-                  <TrendingUp size={11} /> {s.long_exchange}
-                </span>
-              </td>
-              <td>
-                <span className="fr-ex-badge fr-ex-short">
-                  <TrendingDown size={11} /> {s.short_exchange}
-                </span>
-              </td>
-              <td className={rateClass(s.long_rate)}>
-                <span className="fr-rate-main">{fmtRate(s.long_rate)}</span>
-                <span className="fr-rate-ann">{fmtAnn(s.long_rate_ann)}</span>
-              </td>
-              <td className={rateClass(s.short_rate)}>
-                <span className="fr-rate-main">{fmtRate(s.short_rate)}</span>
-                <span className="fr-rate-ann">{fmtAnn(s.short_rate_ann)}</span>
-              </td>
-              <td className="fr-spread">
-                <span className="fr-rate-main">{fmtRate(s.spread)}</span>
-              </td>
-              <td className="fr-ann-yield">
-                <span className="fr-yield-badge">
-                  {s.annualized_pct > 0 ? '+' : ''}{s.annualized_pct.toFixed(2)}%
-                </span>
-              </td>
-              <td className="fr-next">{nextFundingIn(s.next_funding_time)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <div className="card" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)' }}>
+            Метрика
+          </span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {([['pct_day', '% day'], ['pct_year', '% year']] as [HeatMetric, string][]).map(([key, label]) => (
+              <button key={key} onClick={() => setMetric(key)} className="btn-secondary"
+                style={{
+                  padding: '5px 10px', fontSize: 12,
+                  background: metric === key ? '#00a3c4' : undefined,
+                  color: metric === key ? '#fff' : undefined,
+                  borderColor: metric === key ? '#00a3c4' : undefined,
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <select value={exchange} onChange={e => setExchange(e.target.value)}
+          style={{ padding: '5px 8px', fontSize: 12 }}>
+          <option value="">Все биржи (среднее)</option>
+          {exchanges.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+        </select>
+
+        <select value={days} onChange={e => setDays(Number(e.target.value))}
+          style={{ padding: '5px 8px', fontSize: 12 }}>
+          {[14, 30, 60, 90].map(d => <option key={d} value={d}>{d} дней</option>)}
+        </select>
+
+        <button className="btn-secondary" onClick={() => setHeatmap(h => !h)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', fontSize: 12,
+            background: heatmap ? '#00a3c4' : undefined,
+            color: heatmap ? '#fff' : undefined,
+            borderColor: heatmap ? '#00a3c4' : undefined,
+          }}>
+          <Flame size={13} /> Heatmap
+        </button>
+
+        <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>
+          Красный — лонги платят, зелёный — лонгам платят
+        </div>
+
+        <button className="btn-secondary" onClick={exportCsv} disabled={!hasData}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', fontSize: 12 }}>
+          <Download size={13} /> Export CSV
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="empty">Loading funding heatmap…</p>
+      ) : !hasData ? (
+        <p className="empty">Нет данных фандинга за выбранный период</p>
+      ) : (
+        <div className="funding-wrap">
+          <table className="funding-table">
+            <thead>
+              <tr>
+                <th className="tk">Инструмент</th>
+                {dates.map(d => <th key={d}>{heatDateLabel(d)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {SYMBOL_SECTIONS.map(({ label }) => {
+                const sectionSyms = symbols.filter(s => classifySymbol(s) === (label as SymbolSection))
+                if (!sectionSyms.length) return null
+                return (
+                  <Fragment key={label}>
+                    <tr className="funding-group">
+                      <td className="tk">{label}</td>
+                      <td colSpan={dates.length} />
+                    </tr>
+                    {sectionSyms.map(sym => (
+                      <tr key={sym}>
+                        <td className="tk">{formatSymbol(sym)}</td>
+                        {dates.map(d => {
+                          const v = cell.get(`${sym}|${d}`) ?? null
+                          return (
+                            <td key={d}
+                              className={v == null ? 'empty' : undefined}
+                              style={{ background: heatmap ? heatBg(v, scale) : 'transparent' }}>
+                              {v == null ? '·' : fmtCell(v)}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -350,24 +487,19 @@ function HistorySection() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'spreads' | 'matrix' | 'history'
+type Tab = 'heatmap' | 'matrix' | 'history'
 
 export function Funding() {
-  const [tab,      setTab]     = useState<Tab>('spreads')
+  const [tab,      setTab]     = useState<Tab>('heatmap')
   const [rates,    setRates]   = useState<RateEntry[]>([])
-  const [spreads,  setSpreads] = useState<SpreadEntry[]>([])
   const [loading,  setLoading] = useState(true)
   const [lastSync, setLastSync] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [rRes, sRes] = await Promise.all([
-        fetch(`${API}/current`).then(r => r.json()),
-        fetch(`${API}/spreads`).then(r => r.json()),
-      ])
+      const rRes = await fetch(`${API}/current`).then(r => r.json())
       setRates(rRes.rates ?? [])
-      setSpreads(sRes.spreads ?? [])
       setLastSync(new Date())
     } catch { /* keep existing on transient error */ }
     finally { setLoading(false) }
@@ -381,7 +513,20 @@ export function Funding() {
     return () => clearInterval(id)
   }, [load])
 
-  const topSpread = spreads[0]
+  // Extremes drive the KPI strip now that entry opportunities are gone.
+  const extremes = useMemo(() => {
+    let max = rates[0], min = rates[0]
+    for (const r of rates) {
+      if (r.annualized_pct > max.annualized_pct) max = r
+      if (r.annualized_pct < min.annualized_pct) min = r
+    }
+    return { max, min }
+  }, [rates])
+
+  const nextTs = useMemo(
+    () => rates.map(r => r.next_funding_time).filter(Boolean).sort()[0] ?? null,
+    [rates],
+  )
 
   return (
     <div>
@@ -400,44 +545,43 @@ export function Funding() {
       </div>
 
       {/* ── KPI strip ── */}
-      {!loading && topSpread && (
+      {!loading && rates.length > 0 && (
         <div className="fr-kpi-strip">
           <div className="fr-kpi">
-            <span className="fr-kpi-label">Best spread</span>
-            <span className="fr-kpi-value fr-yield-hi">
-              +{topSpread.annualized_pct.toFixed(2)}% p.a.
-            </span>
+            <span className="fr-kpi-label">Highest funding</span>
+            <span className="fr-kpi-value fr-yield-hi">{fmtAnn(extremes.max.annualized_pct)}</span>
             <span className="fr-kpi-sub">
-              {topSpread.symbol.replace('/USDT:USDT', '')} — long {topSpread.long_exchange} / short {topSpread.short_exchange}
+              {extremes.max.symbol.replace('/USDT:USDT', '')} — {extremes.max.exchange}
+            </span>
+          </div>
+          <div className="fr-kpi">
+            <span className="fr-kpi-label">Lowest funding</span>
+            <span className="fr-kpi-value">{fmtAnn(extremes.min.annualized_pct)}</span>
+            <span className="fr-kpi-sub">
+              {extremes.min.symbol.replace('/USDT:USDT', '')} — {extremes.min.exchange}
             </span>
           </div>
           <div className="fr-kpi">
             <span className="fr-kpi-label">Symbols tracked</span>
             <span className="fr-kpi-value">{[...new Set(rates.map(r => r.symbol))].length}</span>
-          </div>
-          <div className="fr-kpi">
-            <span className="fr-kpi-label">Active opportunities</span>
-            <span className="fr-kpi-value">
-              {spreads.filter(s => s.annualized_pct >= 10).length}
+            <span className="fr-kpi-sub">
+              {[...new Set(rates.map(r => r.exchange))].length} бирж
             </span>
-            <span className="fr-kpi-sub">≥ 10% p.a.</span>
           </div>
           <div className="fr-kpi">
             <span className="fr-kpi-label">Next funding in</span>
-            <span className="fr-kpi-value">
-              {nextFundingIn(topSpread.next_funding_time)}
-            </span>
+            <span className="fr-kpi-value">{nextFundingIn(nextTs)}</span>
           </div>
         </div>
       )}
 
       {/* ── Tabs ── */}
       <div className="fr-tabs">
-        {(['spreads', 'matrix', 'history'] as Tab[]).map(t => (
+        {(['heatmap', 'matrix', 'history'] as Tab[]).map(t => (
           <button key={t}
             className={`fr-tab ${tab === t ? 'fr-tab--active' : ''}`}
             onClick={() => setTab(t)}>
-            {t === 'spreads' ? 'Opportunities' : t === 'matrix' ? 'All Rates' : 'History'}
+            {t === 'heatmap' ? 'Heatmap' : t === 'matrix' ? 'All Rates' : 'History'}
           </button>
         ))}
       </div>
@@ -447,7 +591,7 @@ export function Funding() {
         <p className="empty">Loading funding rates…</p>
       ) : (
         <>
-          {tab === 'spreads'  && <SpreadsTable spreads={spreads} />}
+          {tab === 'heatmap'  && <FundingHeatmap />}
           {tab === 'matrix'   && <RatesMatrix rates={rates} />}
           {tab === 'history'  && <HistorySection />}
         </>

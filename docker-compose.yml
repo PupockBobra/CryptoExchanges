@@ -49,6 +49,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      # Telegram user session for the SPB funding ingest — kept on the host so
+      # it never lands in the image (gitignored; see app/spb/funding_tg.py).
+      - ./secrets/telegram:/data/telegram
     depends_on:
       timescaledb:
         condition: service_healthy

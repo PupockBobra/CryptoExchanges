@@ -9,16 +9,27 @@ from app.config import settings
 from app.db.timescale import init_db, seed_instruments_from_config
 from app.redis_client import get_redis, close_redis
 from app.api.routes import prices, arbitrage, health, instruments, exchanges, history, news, funding, launches
-from app.api.routes import open_interest, spb, stocks, reports
+from app.api.routes import open_interest, spb, stocks, reports, mm, crypto_top, mmdetect, okr
 from app.api.routes.launches import launches_refresh_loop
 from app.backfill.ohlcv import backfill_loop
+from app.backfill.hourly import hourly_backfill_loop
 from app.backfill.funding import funding_collector_loop
 from app.moex.etl import moex_etl_loop
+from app.moex.oi_etl import moex_oi_etl_loop
 from app.spb.etl import spb_etl_loop
+from app.spb.funding_exchange import spb_funding_exchange_loop
+from app.spb.funding_tg import spb_funding_tg_loop
 from app.spb.oi_etl import spb_oi_etl_loop
 from app.spb.orderbook import spb_orderbook_poll_loop
+from app.spb.spread_etl import spb_spread_collector_loop
 from app.stocks.etl import stock_etl_loop
+from app.stocks.hourly_etl import stock_hourly_etl_loop
+from app.crypto.etl import crypto_daily_etl_loop, crypto_hourly_etl_loop
 from app.oi.etl import oi_collector_loop
+from app.mm.orderbook import mm_orderbook_poll_loop
+from app.mm.spread_etl import mm_spread_collector_loop
+from app.mmdetect.collector import mmdetect_collector_loop
+from app.okr.etl import okr_etl_loop
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger(__name__)
@@ -71,14 +82,26 @@ async def lifespan(app: FastAPI):
     await get_redis()
     _spawn(_redis_broadcast_loop())
     _spawn(backfill_loop())
+    _spawn(hourly_backfill_loop())
     _spawn(funding_collector_loop())
     _spawn(launches_refresh_loop())
     _spawn(moex_etl_loop())
+    _spawn(moex_oi_etl_loop())
     _spawn(spb_etl_loop())
+    _spawn(spb_funding_exchange_loop())
+    _spawn(spb_funding_tg_loop())
     _spawn(spb_oi_etl_loop())
     _spawn(spb_orderbook_poll_loop())
+    _spawn(spb_spread_collector_loop())
     _spawn(stock_etl_loop())
+    _spawn(stock_hourly_etl_loop())
+    _spawn(crypto_daily_etl_loop())
+    _spawn(crypto_hourly_etl_loop())
     _spawn(oi_collector_loop())
+    _spawn(mm_orderbook_poll_loop())
+    _spawn(mm_spread_collector_loop())
+    _spawn(mmdetect_collector_loop())
+    _spawn(okr_etl_loop())
     log.info("Backend started")
     yield
     await close_redis()
@@ -164,7 +187,11 @@ app.include_router(launches.router,         prefix="/api/launches",         tags
 app.include_router(open_interest.router,    prefix="/api/open-interest",    tags=["open-interest"])
 app.include_router(spb.router,              prefix="/api/spb",              tags=["spb"])
 app.include_router(stocks.router,           prefix="/api/stocks",           tags=["stocks"])
+app.include_router(crypto_top.router,       prefix="/api/crypto-top",       tags=["crypto-top"])
+app.include_router(okr.router,               prefix="/api/okr",              tags=["okr"])
 app.include_router(reports.router,          prefix="/api/reports",          tags=["reports"])
+app.include_router(mm.router,               prefix="/api/mm",               tags=["mm"])
+app.include_router(mmdetect.router,         prefix="/api/mmdetect",         tags=["mmdetect"])
 
 
 @app.websocket("/ws/{channel}")

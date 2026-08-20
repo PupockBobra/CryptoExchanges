@@ -55,12 +55,12 @@ export interface ExchangeStats {
   updated_at:     string | null
 }
 
-export type Exchange = 'binance' | 'okx' | 'bybit' | 'mexc' | 'hyperliquid' | 'moex'
+export type Exchange = 'binance' | 'okx' | 'bybit' | 'mexc' | 'hyperliquid' | 'bitget' | 'moex'
 
 // Crypto exchanges only — used by all pages that work with real-time prices,
 // OHLCV history, or exchange connection stats. MOEX is a data-only source
 // (we ingest FORTS turnover but never connect a WebSocket or fetch prices).
-export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid']
+export const EXCHANGES: Exchange[] = ['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'bitget']
 
 // Includes MOEX — used by analytics pages that visualise stacked turnover.
 export const VOLUME_EXCHANGES: Exchange[] = [...EXCHANGES, 'moex']
@@ -71,6 +71,7 @@ export const EXCHANGE_COLORS: Record<Exchange, string> = {
   bybit:       '#ff6b35',
   mexc:        '#0ecb81',
   hyperliquid: '#00e5ff',
+  bitget:      '#7c5cff',
   moex:        '#d52b1e',
 }
 
@@ -79,21 +80,29 @@ export const EXCHANGE_COLORS: Record<Exchange, string> = {
 export const SYMBOL_SECTIONS = [
   { label: 'Commodities',    bases: ['BRN', 'WTI', 'USOIL', 'NATGAS', 'NGAS', 'UKOIL', 'BRENT', 'COPPER', 'ALUMINIUM', 'WHEAT', 'CORN', 'URANIUM', 'TTF'] },
   { label: 'Precious Metals', bases: ['XAU', 'XAG', 'XPT', 'XPD'] },
-  { label: 'US Market',      bases: ['NVDA', 'QQQ', 'SPY', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'SPCX'] },
-  { label: 'Korean Market',  bases: ['SKHYNIX', 'SAMSUNG', 'HYUNDAI'] },
+  { label: 'Indexes',        bases: ['QQQ', 'SPY'] },
+  { label: 'US Market',      bases: ['NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'SPCX'] },
+  { label: 'Korean Market',  bases: ['SKHYNIX', 'SAMSUNG', 'HYUNDAI', 'SKHY'] },
   { label: 'Crypto Perps',   bases: [] as string[] },   // catch-all
 ] as const
 
-export type SymbolSection = 'Commodities' | 'Precious Metals' | 'US Market' | 'Korean Market' | 'Crypto Perps'
+export type SymbolSection = 'Commodities' | 'Precious Metals' | 'Indexes' | 'US Market' | 'Korean Market' | 'Crypto Perps'
 
-/** Classify a canonical symbol (e.g. 'BRN/USDT:USDT') into a display section. */
-export function classifySymbol(sym: string): SymbolSection {
+/**
+ * Classify a canonical symbol (e.g. 'BRN/USDT:USDT') into a display section.
+ *
+ * `usStockBases` carries the equity-perp tickers the backend currently serves
+ * (top-N by weekly turnover, `/api/history/us-stock-tickers`) — they rotate with
+ * the ranking, so they cannot live in the hard-coded list above.
+ */
+export function classifySymbol(sym: string, usStockBases?: ReadonlySet<string>): SymbolSection {
   const base = sym.split('/')[0]
   for (const section of SYMBOL_SECTIONS) {
     if (section.bases.length && (section.bases as readonly string[]).includes(base)) {
       return section.label as SymbolSection
     }
   }
+  if (usStockBases?.has(base)) return 'US Market'
   return 'Crypto Perps'
 }
 
@@ -134,11 +143,19 @@ export const INSTRUMENT_COLORS: Record<string, string> = {
   HYUNDAI: '#002c5f',
 }
 
-/** BTC/USDT → BTC/USDT   XAU/USDT:USDT → XAU/USDT PERP */
+// Qualifiers appended to a card title where the ticker alone is ambiguous.
+// SKHY is the ADR-style SK Hynix contract the venues list next to the local
+// SKHYNIX one — both show up in the Korean Market section.
+export const SYMBOL_NOTES: Record<string, string> = {
+  SKHY: 'ADR',
+}
+
+/** BTC/USDT → BTC/USDT   XAU/USDT:USDT → XAU/USDT PERP   SKHY/… → SKHY/USDT PERP · ADR */
 export function formatSymbol(sym: string): string {
-  if (!sym.includes(':')) return sym
   const [base] = sym.split('/')
-  return `${base}/USDT PERP`
+  const note = SYMBOL_NOTES[base]
+  if (!sym.includes(':')) return note ? `${sym} · ${note}` : sym
+  return note ? `${base}/USDT PERP · ${note}` : `${base}/USDT PERP`
 }
 
 /** Canonical Redis/WebSocket channel for a symbol */

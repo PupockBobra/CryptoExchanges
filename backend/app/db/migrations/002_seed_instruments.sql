@@ -15,12 +15,14 @@ VALUES
   -- ── Precious metals (perps) ────────────────────────────────────────────────
   ('XAU/USDT:USDT', 'perp', 'XAU', 'USDT', 'Gold perpetual',          true, '{"hyperliquid": "XYZ-GOLD/USDC:USDC"}'::jsonb),
   ('XAG/USDT:USDT', 'perp', 'XAG', 'USDT', 'Silver perpetual',        true, '{"mexc": "SILVER/USDT:USDT", "hyperliquid": "XYZ-SILVER/USDC:USDC"}'::jsonb),
-  ('XPT/USDT:USDT', 'perp', 'XPT', 'USDT', 'Platinum perpetual',      true, '{"hyperliquid": "XYZ-PLATINUM/USDC:USDC"}'::jsonb),
-  ('XPD/USDT:USDT', 'perp', 'XPD', 'USDT', 'Palladium perpetual',     true, '{"hyperliquid": "XYZ-PALLADIUM/USDC:USDC"}'::jsonb),
+  -- bybit lists neither platinum nor palladium; explicit null skips the pair
+  -- instead of raising BadSymbol on every poll (verified 2026-07-29).
+  ('XPT/USDT:USDT', 'perp', 'XPT', 'USDT', 'Platinum perpetual',      true, '{"hyperliquid": "XYZ-PLATINUM/USDC:USDC", "bybit": null}'::jsonb),
+  ('XPD/USDT:USDT', 'perp', 'XPD', 'USDT', 'Palladium perpetual',     true, '{"hyperliquid": "XYZ-PALLADIUM/USDC:USDC", "bybit": null}'::jsonb),
 
   -- ── Commodities (perps) ────────────────────────────────────────────────────
   ('BRN/USDT:USDT',    'perp', 'BRN',    'USDT', 'Brent Crude Oil perpetual', true,
-      '{"binance": "BZ/USDT:USDT", "okx": "BZ/USDT:USDT", "bybit": "BZ/USDT:USDT", "mexc": "UKOIL/USDT:USDT", "hyperliquid": "XYZ-BRENTOIL/USDC:USDC"}'::jsonb),
+      '{"binance": "BZ/USDT:USDT", "okx": "BZ/USDT:USDT", "bybit": "BZ/USDT:USDT", "mexc": "UKOIL/USDT:USDT", "hyperliquid": "XYZ-BRENTOIL/USDC:USDC", "bitget": "BZ/USDT:USDT"}'::jsonb),
   ('NATGAS/USDT:USDT', 'perp', 'NATGAS', 'USDT', 'Natural Gas perpetual',     true,
       '{"mexc": "NGAS/USDT:USDT", "okx": "NG/USDT:USDT", "bybit": null, "hyperliquid": "XYZ-NATGAS/USDC:USDC"}'::jsonb),
 

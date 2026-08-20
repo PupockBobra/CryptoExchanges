@@ -1,0 +1,12 @@
+# Build context excludes. The prod stage does `COPY . .`, so anything listed
+# here stays out of the image (and out of the context upload on every build).
+# .venv is a host-side macOS virtualenv used to run the test suite locally —
+# 200+ MB of binaries that are useless (and wrong-platform) inside the image.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.DS_Store

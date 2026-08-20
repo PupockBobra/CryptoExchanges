@@ -5,6 +5,7 @@ GET /api/funding/current    — latest rates per symbol × exchange (Redis → D
 GET /api/funding/spreads    — ranked cross-exchange spread opportunities
 GET /api/funding/history    — historical settled rates for backtesting
 GET /api/funding/symbols    — list of symbols with stored data
+GET /api/funding/heatmap    — settled funding per day × symbol × exchange
 """
 
 import json
@@ -17,8 +18,10 @@ from app.redis_client import get_redis
 from app.db.timescale import (
     fetch_latest_funding_rates,
     fetch_funding_rate_history_db,
+    fetch_funding_daily,
     fetch_funding_symbols,
 )
+from app.api.cache import ttl_cache
 
 log    = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,6 +39,7 @@ def _annualized(rate: float, interval_hours: int) -> float:
 # ── /current ──────────────────────────────────────────────────────────────────
 
 @router.get("/current")
+@ttl_cache()
 async def get_current_rates():
     """
     Latest funding rates per symbol × exchange.
@@ -183,6 +187,32 @@ async def get_history(
         "days":     days,
         "count":    len(rates),
         "rates":    rates,
+    }
+
+
+# ── /heatmap ──────────────────────────────────────────────────────────────────
+
+@router.get("/heatmap")
+@ttl_cache()
+async def get_heatmap(days: int = Query(30, ge=1, le=365)):
+    """
+    Daily funding per symbol × exchange for the instrument heatmap.
+    `pct_day` is what the day actually paid; `pct_year` annualises its mean rate.
+    """
+    rows = await fetch_funding_daily(days)
+    return {
+        "days": days,
+        "rows": [
+            {
+                "date":        str(r["date"]),
+                "symbol":      r["symbol"],
+                "exchange":    r["exchange"],
+                "pct_day":     round(float(r["pct_day"]), 6),
+                "pct_year":    round(float(r["pct_year"]), 4) if r["pct_year"] is not None else None,
+                "settlements": r["settlements"],
+            }
+            for r in rows
+        ],
     }
 
 

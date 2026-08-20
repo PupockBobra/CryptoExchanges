@@ -11,6 +11,7 @@ from app.collector.okx         import OkxCollector
 from app.collector.bybit       import BybitCollector
 from app.collector.mexc        import MexcCollector
 from app.collector.hyperliquid import HyperliquidCollector
+from app.collector.bitget      import BitgetCollector
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ COLLECTORS = {
     "bybit":       BybitCollector,
     "mexc":        MexcCollector,
     "hyperliquid": HyperliquidCollector,
+    "bitget":      BitgetCollector,
 }
 
 

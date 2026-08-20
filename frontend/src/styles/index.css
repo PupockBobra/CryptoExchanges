@@ -249,6 +249,23 @@ body {
 .report-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
 .report-table tbody tr:hover { background: rgba(99,102,241,.06); }
 
+/* ── Funding heatmap table ───────────────────────────────────────────────── */
+.funding-wrap    { overflow: auto; max-height: calc(100vh - 300px); border: 1px solid var(--border); border-radius: 10px; }
+.funding-table   { border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; width: max-content; }
+.funding-table th, .funding-table td { padding: 6px 10px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+.funding-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); color: var(--muted); font-weight: 600; text-align: right; font-size: 11px; }
+.funding-table td { text-align: right; color: var(--text); }
+/* sticky instrument column */
+.funding-table th.tk, .funding-table td.tk { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; }
+.funding-table thead th.tk { z-index: 3; }
+.funding-table td.tk { color: var(--text); font-weight: 500; }
+.funding-table td.tk .tk-sub { color: var(--muted); font-size: 10px; font-weight: 400; }
+.funding-table tr.funding-group td { background: var(--surface2); color: var(--muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.funding-table tr.funding-group td.tk { background: var(--surface2); }
+.funding-table td.empty { color: var(--muted); opacity: .4; }
+.funding-drop { border: 1px dashed var(--border); border-radius: 10px; transition: border-color .15s, background .15s; }
+.funding-drop.drag { border-color: #00a3c4; background: rgba(0,163,196,.06); }
+
 /* ── Modal ───────────────────────────────────────────────────────────────── */
 .modal-overlay  { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
 .modal          { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }

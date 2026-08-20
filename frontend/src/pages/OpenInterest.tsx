@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Plotly from 'plotly.js-dist-min'
 import { RefreshCw, Download } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
-import { EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
+import { VOLUME_EXCHANGES, EXCHANGE_COLORS, SYMBOL_SECTIONS, classifySymbol, formatSymbol } from '../types'
 import type { Exchange, SymbolSection } from '../types'
 import { SectionHeading } from '../components/SectionHeading'
 import { ExchangeSourceBadges } from '../components/ExchangeSourceBadges'
+import { pickUnit, maxStackedTotal } from '../utils/scale'
+import { sortSymbolsByValue } from '../utils/rank'
 
 const API = (import.meta.env.VITE_API_URL ?? '') + '/api/open-interest'
+const HISTORY_API = (import.meta.env.VITE_API_URL ?? '') + '/api/history'
 
 interface DailyOIRow {
   date:         string   // 'YYYY-MM-DD'
@@ -115,9 +118,19 @@ function OIChart({ symbol, rows }: ChartProps) {
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     })
 
-    const scale = 1e6
+    // Unit follows this instrument's own scale — see utils/scale.ts
+    const { scale, suffix } = pickUnit(
+      maxStackedTotal(rows.map(r => ({ key: r.date, value: r.oi_rub }))),
+    )
 
-    const traces: Plotly.Data[] = EXCHANGES.map((ex: Exchange) => {
+    // MOEX FORTS open interest (ISS OPENPOSITION) stacks alongside the crypto
+    // venues, but only for the instruments that actually have a FORTS contract.
+    const hasMoex = rows.some(r => r.exchange === 'moex')
+    const visibleExchanges = hasMoex
+      ? VOLUME_EXCHANGES
+      : VOLUME_EXCHANGES.filter(ex => ex !== 'moex')
+
+    const traces: Plotly.Data[] = visibleExchanges.map((ex: Exchange) => {
       const byDate = new Map<string, number>()
       rows.filter(r => r.exchange === ex && r.oi_rub != null)
           .forEach(r => byDate.set(r.date, r.oi_rub!))
@@ -127,11 +140,18 @@ function OIChart({ symbol, rows }: ChartProps) {
         type: 'bar', name: ex, x: labels, y,
         marker: { color: EXCHANGE_COLORS[ex], opacity: 0.85 },
         visible: hasAny ? true : 'legendonly',
-        hovertemplate: `<b>${ex}</b>: ₽%{y:,.1f}M<extra></extra>`,
+        hovertemplate: `<b>${ex}</b>: ₽%{y:,.1f}${suffix}<extra></extra>`,
       } satisfies Plotly.Data
     })
 
-    Plotly.react(divRef.current, traces, buildLayout(formatSymbol(symbol), theme), PLOTLY_CONFIG)
+    const layout = buildLayout(formatSymbol(symbol), theme)
+    layout.yaxis = {
+      ...layout.yaxis,
+      title: { text: `OI (₽${suffix})`, font: { color: themeTokens(theme).text, size: 11, family: FONT_FAMILY }, standoff: 14 },
+      ticksuffix: suffix,
+    }
+
+    Plotly.react(divRef.current, traces, layout, PLOTLY_CONFIG)
   }, [symbol, rows, theme])
 
   useEffect(() => {
@@ -174,6 +194,7 @@ function OIChart({ symbol, rows }: ChartProps) {
 
 export function OpenInterest() {
   const [allRows,  setAllRows]  = useState<DailyOIRow[]>([])
+  const [usStocks, setUsStocks] = useState<Set<string>>(new Set())
   const [loading,  setLoading]  = useState(true)
   const [lastSync, setLastSync] = useState<Date | null>(null)
 
@@ -184,6 +205,13 @@ export function OpenInterest() {
       if (!r.ok) throw new Error(`OI request failed: ${r.status}`)
       const data = await r.json()
       setAllRows(Array.isArray(data) ? data : [])
+      // US Market = top-N equity perps by weekly turnover, named by the backend.
+      try {
+        const s = await fetch(`${HISTORY_API}/us-stock-tickers`)
+        if (s.ok) setUsStocks(new Set(((await s.json()).tickers ?? []) as string[]))
+      } catch (e) {
+        console.error('Failed to load US stock tickers:', e)
+      }
       setLastSync(new Date())
     } catch (e) {
       console.error('Failed to load open interest:', e)
@@ -197,10 +225,19 @@ export function OpenInterest() {
 
   // Only instruments with real OI — hide charts that would be empty (e.g. the
   // untraded CORN/TTF/URANIUM/WHEAT commodity perps whose OI is always zero).
+  // Ranked by the most recent OI, biggest first — not alphabetically.  OI is a
+  // stock, not a flow, so summing the 30 days would just favour the instruments
+  // with the longest history.
   const symbols = useMemo(() => {
     const withOI = new Set<string>()
     for (const r of allRows) if (r.oi_rub != null && r.oi_rub > 0) withOI.add(r.symbol)
-    return Array.from(withOI).sort()
+    const lastDate = allRows.reduce((m, r) => (r.date > m ? r.date : m), '')
+    const ranked = sortSymbolsByValue(
+      allRows.filter(r => r.date === lastDate),
+      r => r.symbol,
+      r => r.oi_rub,
+    )
+    return ranked.filter(s => withOI.has(s))
   }, [allRows])
   const rowsBySymbol = useMemo(() => {
     const map = new Map<string, DailyOIRow[]>()
@@ -231,7 +268,7 @@ export function OpenInterest() {
       </div>
 
       <ExchangeSourceBadges
-        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid']}
+        exchanges={['binance', 'okx', 'bybit', 'mexc', 'hyperliquid', 'bitget']}
       />
 
       <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
@@ -260,7 +297,7 @@ export function OpenInterest() {
       ) : (
         <>
           {SYMBOL_SECTIONS.map(({ label }) => {
-            const sectionSyms = symbols.filter(s => classifySymbol(s) === (label as SymbolSection))
+            const sectionSyms = symbols.filter(s => classifySymbol(s, usStocks) === (label as SymbolSection))
             if (!sectionSyms.length) return null
             return (
               <div key={label}>

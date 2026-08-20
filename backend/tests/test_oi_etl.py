@@ -70,3 +70,31 @@ def test_parse_ts():
     assert _parse_ts(1_700_000_000_000) == datetime.fromtimestamp(
         1_700_000_000, tz=timezone.utc
     )
+
+
+def test_extract_bitget_reads_open_interest_list():
+    # Bitget: ccxt leaves openInterest=None and buries the size in a list.
+    oi, oi_val = _extract_oi_from_result(
+        {"openInterest": None, "openInterestValue": None,
+         "info": {"openInterestList": [{"symbol": "BTCUSDT", "size": "34668.48"}],
+                  "ts": "1785414137128"}},
+        "bitget",
+    )
+    assert oi == 34668.48
+    assert oi_val is None          # priced by the caller's ticker fallback
+
+
+def test_extract_bitget_survives_an_empty_list():
+    oi, oi_val = _extract_oi_from_result(
+        {"openInterest": None, "openInterestValue": None,
+         "info": {"openInterestList": []}}, "bitget"
+    )
+    assert (oi, oi_val) == (None, None)
+
+
+def test_open_interest_list_only_read_for_bitget():
+    oi, _ = _extract_oi_from_result(
+        {"openInterest": None, "openInterestValue": None,
+         "info": {"openInterestList": [{"size": "10"}]}}, "okx"
+    )
+    assert oi is None

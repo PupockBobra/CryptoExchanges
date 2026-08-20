@@ -1,0 +1,19 @@
+[Unit]
+# СЦЕНАРИЙ B: только сборщик пишет в SQLite; данные наружу отдаёт сам трекер,
+# читая ту же базу через функции index_core. HTTP-API этого пакета не поднимается.
+Description=MOEX Crypto Index Collector (collector only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ПОПРАВЬ под свой сервер. INDEX_DB должен совпадать с тем, что читает трекер!
+User=www-data
+WorkingDirectory=/opt/crypto-index
+Environment=INDEX_DB=/var/lib/crypto-index/index.db
+ExecStart=/opt/crypto-index/venv/bin/python collector.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

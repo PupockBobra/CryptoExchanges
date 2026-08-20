@@ -45,7 +45,7 @@ const BASE_NAMES: Record<string, string> = {
   COPPER: 'Copper',
   WHEAT: 'Wheat', CORN: 'Corn', SOYBEAN: 'Soybean',
   COTTON: 'Cotton', COFFEE: 'Coffee', COCOA: 'Cocoa', SUGAR: 'Sugar',
-  QQQ: 'Nasdaq-100 ETF', SPY: 'S&P 500 ETF', SPX: 'S&P 500', SPX500: 'S&P 500',
+  QQQ: 'Nasdaq-100 ETF', SPY: 'S&P 500 ETF', SPX500: 'S&P 500',
   NAS100: 'Nasdaq-100', NASDAQ: 'Nasdaq Composite', NDX: 'Nasdaq-100',
   DOW: 'Dow Jones', DJI: 'Dow Jones Industrial Avg.',
   NIKKEI: 'Nikkei 225', DAX: 'DAX 40', FTSE: 'FTSE 100', CAC: 'CAC 40',
@@ -66,8 +66,8 @@ const BASE_NAMES: Record<string, string> = {
   GS: 'Goldman Sachs', MS: 'Morgan Stanley', WMT: 'Walmart',
   TGT: 'Target Corp.', COST: 'Costco Wholesale', HD: 'Home Depot',
   PFE: 'Pfizer Inc.', MRNA: 'Moderna Inc.', JNJ: 'Johnson & Johnson',
-  UNH: 'UnitedHealth Group', CVX: 'Chevron Corp.', XOM: 'ExxonMobil',
-  BA: 'Boeing Co.', GE: 'GE Aerospace', F: 'Ford Motor Co.',
+  UNH: 'UnitedHealth Group', XOM: 'ExxonMobil',
+  BA: 'Boeing Co.', GE: 'GE Aerospace',
   GM: 'General Motors', NIO: 'NIO Inc.', BABA: 'Alibaba Group',
   JD: 'JD.com', PDD: 'PDD Holdings', SHOP: 'Shopify',
   SQ: 'Block Inc. (Square)', ROKU: 'Roku Inc.', ZM: 'Zoom Video',
@@ -93,7 +93,7 @@ const COMMODITIES = new Set([
 ])
 // Indexes = indices, ETFs, volatility
 const INDEXES = new Set([
-  'QQQ','SPY','SPX','SPX500','NAS100','NASDAQ','NDX','DOW','DJI',
+  'QQQ','SPY','SPX500','NAS100','NASDAQ','NDX','DOW','DJI',
   'NIKKEI','DAX','FTSE','CAC','ES','NQ','RUT','VIX',
 ])
 
@@ -110,7 +110,8 @@ const NEW_DAYS = 7
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const EXCHANGE_LABEL: Record<string, string> = {
-  binance: 'Binance', okx: 'OKX', mexc: 'MEXC', bybit: 'Bybit', hyperliquid: 'Hyperliquid',
+  binance: 'Binance', okx: 'OKX', mexc: 'MEXC', bybit: 'Bybit',
+  hyperliquid: 'Hyperliquid', bitget: 'Bitget',
 }
 
 function isRecent(dateStr: string | null): boolean {
@@ -417,7 +418,7 @@ export function Launches() {
         </button>
       </div>
 
-      <ExchangeSourceBadges exchanges={['binance', 'okx', 'bybit', 'mexc']} />
+      <ExchangeSourceBadges exchanges={['bitget', 'hyperliquid', 'binance', 'okx', 'bybit', 'mexc']} />
 
       <div className="card" style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
         <div style={{ padding: '12px 20px 12px 16px', borderRight: '1px solid var(--border)' }}>
@@ -425,7 +426,7 @@ export function Launches() {
             Страница показывает
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            Перп-контракты на традиционные активы на крупнейших криптобиржах: Binance, OKX, Bybit, MEXC. Охватывает товары (нефть, газ, металлы), акции США и мировые индексы.
+            Перп-контракты на традиционные активы на крупнейших криптобиржах: Bitget, Hyperliquid, Binance, OKX, Bybit, MEXC. Охватывает товары (нефть, газ, металлы), акции США и мировые индексы.
           </div>
         </div>
         <div style={{ padding: '12px 16px 12px 20px' }}>

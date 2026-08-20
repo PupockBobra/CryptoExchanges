@@ -139,8 +139,13 @@ async def _backfill_one(
         # tens of thousands of bogus rows.
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         rows_to_upsert: list[tuple] = []
+        # Bitget caps daily klines at ~90 bars starting at `since` and returns an
+        # EMPTY page when `since` predates the contract's first candle.  Skip such
+        # pre-launch windows forward (by less than one page) instead of stopping,
+        # so a late-listed contract still backfills its full available history.
+        empty_skip_ms = 60 * 86_400_000
 
-        while True:
+        while since_ms < now_ms:
             try:
                 batch = await exchange.fetch_ohlcv(
                     exchange_sym, TIMEFRAME, since=since_ms, limit=500
@@ -150,7 +155,8 @@ async def _backfill_one(
                 break
 
             if not batch:
-                break
+                since_ms += empty_skip_ms
+                continue
 
             page_rows, saw_future = parse_ohlcv_batch(
                 batch, now_ms, canonical, exchange_id, contract_size
@@ -158,10 +164,15 @@ async def _backfill_one(
             rows_to_upsert.extend(page_rows)
 
             last_ts_ms = batch[-1][0]
-            # Stop once the page contains future bars or runs short.
-            if saw_future or len(batch) < 500 or last_ts_ms >= now_ms:
+            # Stop on future placeholder bars (MEXC) or once we've caught up to
+            # today.  Do NOT stop merely because a page is short: some exchanges
+            # (e.g. Bitget) cap daily klines at ~90 bars per request regardless of
+            # the requested limit, so a short page is normal mid-history — advance
+            # `since` until the newest bar stops moving forward.
+            next_since = last_ts_ms + 1
+            if saw_future or last_ts_ms >= now_ms or next_since <= since_ms:
                 break
-            since_ms = last_ts_ms + 1
+            since_ms = next_since
             await asyncio.sleep(0.3)   # polite rate limiting between pages
 
         stored = await upsert_ohlcv_daily(rows_to_upsert)

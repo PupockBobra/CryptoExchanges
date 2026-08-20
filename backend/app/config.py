@@ -28,11 +28,23 @@ class Settings(BaseSettings):
     bybit_secret: str = ""
     mexc_api_key: str = ""
     mexc_secret: str = ""
+    bitget_api_key: str = ""
+    bitget_secret: str = ""
+    bitget_passphrase: str = ""
 
     # Finam TradeAPI secret (tapi_sk_…) for SPB Exchange perp turnover.
     # Backend-only — grants read access to the owner's brokerage account, so it
     # must never reach the frontend. The SPB ETL is a no-op when unset.
     finam_api_token: str = ""
+
+    # Telegram MTProto credentials (my.telegram.org) for the SPB funding
+    # auto-ingest from the @beststocks_neo channel.  The session file is full
+    # access to that Telegram account — mount it, never bake it into the image.
+    # The ingest loop is a no-op when the id/hash are unset.
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session_path: str = "/data/telegram/spb_funding.session"
+    telegram_funding_channel: str = "beststocks_neo"
 
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
@@ -61,7 +73,7 @@ class Settings(BaseSettings):
         except Exception:
             return {}
 
-    exchanges: List[str] = ["binance", "okx", "bybit", "mexc", "hyperliquid"]
+    exchanges: List[str] = ["binance", "okx", "bybit", "mexc", "hyperliquid", "bitget"]
 
 
 settings = Settings()

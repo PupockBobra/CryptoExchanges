@@ -27,7 +27,7 @@ from app.db.timescale import (
     upsert_moex_daily_value,
 )
 from app.moex.calendar import is_moex_value_day
-from app.moex.config import ASSET_TO_CANONICAL, ASSET_ISS_CODE
+from app.moex.config import ASSET_TO_CANONICAL, iss_codes_for
 from app.moex.fetcher import fetch_usdrubf_history, aggregate_asset_value_by_assetcode
 
 log = logging.getLogger(__name__)
@@ -122,11 +122,15 @@ async def _refresh_asset(asset_code: str) -> None:
     from_dt = _from_date(latest)
     today   = date.today()
 
-    iss_code = ASSET_ISS_CODE[asset_code]
-    log.info("MOEX ETL: fetching %s (iss=%s, all series) from %s to %s", asset_code, iss_code, from_dt, today)
-    totals: dict[date, float] = await loop.run_in_executor(
-        _executor, aggregate_asset_value_by_assetcode, iss_code, from_dt, today
-    )
+    # Mini contracts (BRM/NGM/GOLDM/SILVM) are summed into the parent asset.
+    totals: dict[date, float] = {}
+    for iss_code in iss_codes_for(asset_code):
+        log.info("MOEX ETL: fetching %s (iss=%s, all series) from %s to %s", asset_code, iss_code, from_dt, today)
+        part: dict[date, float] = await loop.run_in_executor(
+            _executor, aggregate_asset_value_by_assetcode, iss_code, from_dt, today
+        )
+        for d, v in part.items():
+            totals[d] = totals.get(d, 0.0) + v
 
     if not totals:
         log.warning("MOEX ETL: %s returned no VALUE rows", asset_code)

@@ -11,3 +11,18 @@ dist/
 .claude/
 # stray temp build artifacts (Windows path leak)
 frontend/C*/
+# macOS Finder metadata
+.DS_Store
+# local test venv (see backend/README-tests or CLAUDE.md → Running tests)
+.venv/
+venv/
+# local working data — source CSV/XLSX uploads, not part of the app
+data/
+# Telegram user session for the SPB funding ingest — full account access
+secrets/
+*.session
+*.session-journal
+# generated Excel + chart exports (scripts/export_report.py)
+exports/*
+!exports/README.md
+*.xlsx

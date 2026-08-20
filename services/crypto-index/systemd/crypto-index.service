@@ -1,0 +1,18 @@
+[Unit]
+# СЦЕНАРИЙ A: сервис = сборщик + HTTP-API + дашборд (один процесс).
+Description=MOEX Crypto Index Replicator (collector + API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ПОПРАВЬ под свой сервер:
+User=www-data
+WorkingDirectory=/opt/crypto-index
+Environment=INDEX_DB=/var/lib/crypto-index/index.db
+ExecStart=/opt/crypto-index/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

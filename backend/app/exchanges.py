@@ -30,6 +30,7 @@ EXCHANGE_CLS: dict[str, type] = {
     "bybit":       ccxt_async.bybit,
     "mexc":        ccxt_async.mexc,
     "hyperliquid": ccxt_async.hyperliquid,
+    "bitget":      ccxt_async.bitget,
 }
 
 # defaultType to use for perpetual contracts on each exchange
@@ -39,6 +40,7 @@ PERP_MARKET_TYPE: dict[str, str] = {
     "bybit":       "linear",
     "mexc":        "swap",
     "hyperliquid": "swap",     # USDC-margined perpetuals
+    "bitget":      "swap",     # USDT-margined perpetuals
 }
 
 # ── Crypto majors: spot price, perpetual volume/OI ────────────────────────────
@@ -51,15 +53,15 @@ PERP_MARKET_TYPE: dict[str, str] = {
 CRYPTO_PERP_OVERRIDES: dict[str, dict[str, str]] = {
     "BTC/USDT": {
         "binance": "BTC/USDT:USDT", "okx": "BTC/USDT:USDT", "bybit": "BTC/USDT:USDT",
-        "mexc": "BTC/USDT:USDT", "hyperliquid": "BTC/USDC:USDC",
+        "mexc": "BTC/USDT:USDT", "hyperliquid": "BTC/USDC:USDC", "bitget": "BTC/USDT:USDT",
     },
     "ETH/USDT": {
         "binance": "ETH/USDT:USDT", "okx": "ETH/USDT:USDT", "bybit": "ETH/USDT:USDT",
-        "mexc": "ETH/USDT:USDT", "hyperliquid": "ETH/USDC:USDC",
+        "mexc": "ETH/USDT:USDT", "hyperliquid": "ETH/USDC:USDC", "bitget": "ETH/USDT:USDT",
     },
     "SOL/USDT": {
         "binance": "SOL/USDT:USDT", "okx": "SOL/USDT:USDT", "bybit": "SOL/USDT:USDT",
-        "mexc": "SOL/USDT:USDT", "hyperliquid": "SOL/USDC:USDC",
+        "mexc": "SOL/USDT:USDT", "hyperliquid": "SOL/USDC:USDC", "bitget": "SOL/USDT:USDT",
     },
 }
 
@@ -70,6 +72,7 @@ FUNDING_INTERVAL_HOURS: dict[str, int] = {
     "bybit":       8,
     "mexc":        8,
     "hyperliquid": 1,
+    "bitget":      8,
 }
 
 
